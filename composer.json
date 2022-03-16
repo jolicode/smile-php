@@ -22,6 +22,5 @@
     },
     "scripts": {
         "cs-fix": "vendor/bin/php-cs-fixer fix src",
-        "decode": "symfony console smile-decode"
     }
 }
