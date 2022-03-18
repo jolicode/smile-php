@@ -1,10 +1,14 @@
 <?php
 
+/*
+ * This file is part of the Smile PHP project, a project by JoliCode.
+ */
+
 namespace Jolicode\SmilePhp\Command;
 
 use Jolicode\SmilePhp\Encoder\SmileDecoder;
-use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Attribute\AsCommand;
+use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -27,15 +31,13 @@ class DecodeCommand extends Command
         $data = $input->getArgument('smile-data');
 
         if (is_file($data)) {
-            $file = fopen($data, 'r');
-            $data = fread($file, filesize($data));
-            fclose($file);
+            $data = file_get_contents($data);
         }
 
         // TODO : add a progress bar
 
         // TODO : use a proper logger instead
-        echo($decoder->decode($data));
+        $output->writeln($decoder->decode($data));
 
         return Command::SUCCESS;
     }
