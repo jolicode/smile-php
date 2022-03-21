@@ -191,9 +191,14 @@ class SmileDecoder
             return;
         }
 
-        // TODO: This prints comas at the start of arrays and objects, fixing needed
-        if ($this->depthLevel && Bytes::LITERAL_ARRAY_END !== $byte) {
-            $this->output(',');
+        if ($this->depthLevel) {
+            if (Bytes::LITERAL_ARRAY_END !== $byte && Bytes::LITERAL_ARRAY_START !== $this->bytesArray[$this->index - 2]) {
+                $this->output(",\n");
+            }
+
+            foreach (range(1, $this->depthLevel) as $indent) {
+                $this->output('  ');
+            }
         }
 
         $this->output(match (true) {
@@ -361,14 +366,14 @@ class SmileDecoder
     {
         ++$this->depthLevel;
 
-        return '[';
+        return "[\n";
     }
 
     private function writeArrayEnd(): string
     {
         --$this->depthLevel;
 
-        return ']';
+        return "\n]";
     }
 
     private function writeObjectStart(): string
