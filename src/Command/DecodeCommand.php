@@ -21,7 +21,7 @@ class DecodeCommand extends Command
 {
     protected function configure()
     {
-        $this->addArgument('smile-data', InputArgument::OPTIONAL, 'The data you want to decode, you can use a file or a string. Defaults to files/decode/input', __DIR__ . '/../../files/decode/input');
+        $this->addArgument('smile-data', InputArgument::OPTIONAL, 'The data you want to decode, you can use a file or a string. Defaults to files/decode/input.smile', __DIR__ . '/../../files/decode/input.smile');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output)
