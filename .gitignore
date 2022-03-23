@@ -1,8 +1,2 @@
 /vendor/
 /.php-cs-fixer.cache
-
-# We don't want to push our results
-/files/decode/output.json
-/files/decode/input.smile
-/files/encode/output.json
-/files/encode/input.smile

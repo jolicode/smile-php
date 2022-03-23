@@ -8,3 +8,8 @@ Smile-PHP is still under development and is currently not ready at all.
 # Inspirations
 
 Smile-PHP is mainly based on https://github.com/jhosmer/PySmile. However, it also relies on https://github.com/ngyewch/smile-js and https://github.com/zencoder/go-smile for some parts.
+
+# Requirements
+
+Smile-PHP uses the PHP mb_string extension and the PHP BCMath extension, so you must make sure your server has them installed.
+

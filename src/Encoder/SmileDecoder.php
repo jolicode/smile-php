@@ -43,6 +43,8 @@ class SmileDecoder
             }
         }
 
+        $this->output("\n");
+
         return file_get_contents($this->outputFile);
     }
 
@@ -127,15 +129,24 @@ class SmileDecoder
         return bindec($binaryString);
     }
 
-    private function decodeFloat(int $bytesAmount): int
+    // This method uses the BCMath extension, which returns a string, because the numbers it deals with may be too large for PHP.
+    // See https://www.php.net/manual/en/language.types.integer.php#language.types.integer.overflow
+    private function decodeFloat(int $bytesAmount): string
     {
-        $intBits = $this->getNextByte();
+        $result = $this->getNextByte();
 
         foreach (range(1, $bytesAmount) as $index) {
-            $intBits = ($intBits << 7) + $this->getNextByte();
-        }
+            $byte = $this->getNextByte();
 
-        return $intBits;
+            // These two lines actually simply do `$result = ($result << 7) + $byte` but compatible with very large numbers
+            $pow = bcpow(2, 7);
+            $result = bcadd(bcmul($result, $pow), $byte);
+        }
+        $unpack = unpack('d*', $result);
+        // Not working for now :(.
+        dd($unpack);
+
+        return $result;
     }
 
     private function decodeBigDecimal(): int
@@ -151,17 +162,16 @@ class SmileDecoder
         return ($int >> 1) ^ -($int & 1);
     }
 
-    private function copyStringValue(int $length): string
+    private function decodeStringValue(int $length): string
     {
         $result = '';
-        $string = \array_slice($this->bytesArray, $this->index, $length + 1);
+        $string = \array_slice($this->bytesArray, $this->index, $length);
 
         foreach ($string as $char) {
             $result .= mb_chr($char);
         }
 
-        $this->sharedValueStrings[] = $string;
-        $this->index += $length + 1;
+        $this->index += $length;
 
         return $result;
     }
@@ -191,11 +201,12 @@ class SmileDecoder
             return;
         }
 
-        if ($this->depthLevel) {
-            if (Bytes::LITERAL_ARRAY_END !== $byte && Bytes::LITERAL_ARRAY_START !== $this->bytesArray[$this->index - 2]) {
-                $this->output(",\n");
-            }
+        if (Bytes::LITERAL_ARRAY_END === $byte || Bytes::LITERAL_OBJECT_END === $byte) {
+            --$this->depthLevel;
+            $this->output("\n");
+        }
 
+        if ($this->depthLevel) {
             foreach (range(1, $this->depthLevel) as $indent) {
                 $this->output('  ');
             }
@@ -227,6 +238,15 @@ class SmileDecoder
             Bytes::MARKER_END_OF_CONTENT === $byte => $this->endBodyDecoding(), // 254 is end of content marker
             default => throw new UnexpectedValueException(sprintf('Given byte does\'t exist. Given byte has value %d but decimal bytes range from 0 to 254.', $byte))
         });
+
+        if ($this->depthLevel) {
+            if (
+                (Bytes::LITERAL_ARRAY_START !== $byte && Bytes::LITERAL_ARRAY_END !== $this->bytesArray[$this->index]) &&
+                (Bytes::LITERAL_OBJECT_START !== $byte && Bytes::LITERAL_OBJECT_END !== $this->bytesArray[$this->index])
+            ) {
+                $this->output(",\n");
+            }
+        }
     }
 
     private function decodeKey(): void
@@ -237,8 +257,8 @@ class SmileDecoder
             return;
         }
 
-        if (Bytes::LITERAL_OBJECT_END !== $byte) {
-            $this->output(',');
+        foreach (range(1, $this->depthLevel) as $indent) {
+            $this->output('  ');
         }
 
         $this->output(match (true) {
@@ -257,6 +277,8 @@ class SmileDecoder
             Bytes::LITERAL_OBJECT_END === $byte => $this->writeObjectEnd(),
             default => null, // We do nothing for 251 > 254
         });
+
+        $this->decodeBody();
     }
 
     private function writeSharedString(int $byte): string
@@ -295,8 +317,8 @@ class SmileDecoder
     private function writeFloat(int $byte): string
     {
         return match ($byte) {
-            Bytes::FLOAT_32 => $this->decodeFloat(5),
-            Bytes::FLOAT_64 => $this->decodeFloat(10),
+            Bytes::FLOAT_32 => $this->decodeFloat(4),
+            Bytes::FLOAT_64 => $this->decodeFloat(9),
             Bytes::BIG_DECIMAL => $this->decodeBigDecimal()
         };
     }
@@ -304,7 +326,9 @@ class SmileDecoder
     private function writeAsciiOrUnicode(int $byte, $bits): string
     {
         $length = ($byte & 31) + $bits;
-        $result = $this->copyStringValue($length);
+        $result = $this->decodeStringValue($length);
+
+        $this->sharedValueStrings[$byte & 31] = $result;
 
         return sprintf('"%s"', $result);
     }
@@ -371,9 +395,7 @@ class SmileDecoder
 
     private function writeArrayEnd(): string
     {
-        --$this->depthLevel;
-
-        return "\n]";
+        return ']';
     }
 
     private function writeObjectStart(): string
@@ -382,13 +404,15 @@ class SmileDecoder
 
         $this->isDecodingKey = true;
 
-        return '{';
+        return "{\n";
     }
 
     private function writeObjectEnd(): string
     {
         --$this->depthLevel;
         $this->isDecodingKey = (bool) $this->depthLevel;
+
+        dd($this->bytesArray[$this->index]);
 
         return '}';
     }
@@ -397,13 +421,12 @@ class SmileDecoder
     {
         $this->isFullyDecoded = true;
 
+        // TODO: smile data files seem to be missing the end of file byte. Until we know why, we add the trailing \n in the decode method, but it should be here.
         return null;
     }
 
     private function writeShortSharedKey(): ?string
     {
-        $this->isDecodingKey = false;
-
         if (\array_key_exists($this->bytesArray[$this->index - 1] - 64, $this->sharedKeyStrings)) {
             return sprintf(
                 '"%s"',
@@ -416,29 +439,21 @@ class SmileDecoder
 
     private function writeShortAsciiKey(int $byte): string
     {
-        // $length = ($byte & 31) + 1;
-        // $key = $this->escape($this->index + $length);
+        $length = ($byte & 31) + 1;
+        $result = $this->decodeStringValue($length);
 
-        // $this->sharedKeyStrings[] = $key;
-        // $this->index += $length;
-        // $this->isDecodingKey = false;
+        $this->sharedKeyStrings[$byte & 31] = $result;
 
-        // return sprintf('"%s"', $key);
-
-        return '';
+        return sprintf('"%s" : ', $result);
     }
 
     private function writeShortUnicodeKey(int $byte): string
     {
-        // $length = ($byte - 192) + 2;
-        // $key = $this->escape($this->index + $length);
+        $length = ($byte & 192) + 2;
+        $result = $this->decodeStringValue($length);
 
-        // $this->sharedKeyStrings[] = $key;
-        // $this->index += $length;
-        // $this->isDecodingKey = false;
+        $this->sharedKeyStrings[$byte & 192] = $result;
 
-        // return sprintf('"%s"', $key);
-
-        return '';
+        return sprintf('"%s" : ', $result);
     }
 }

@@ -22,6 +22,7 @@
         "friendsofphp/php-cs-fixer": "^3.7"
     },
     "scripts": {
-        "cs-fix": "vendor/bin/php-cs-fixer fix src"
+        "cs-fix": "vendor/bin/php-cs-fixer fix src",
+        "tests": "vendor/bin/phpunit tests/"
     }
 }
