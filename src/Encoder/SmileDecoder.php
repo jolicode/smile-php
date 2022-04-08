@@ -236,8 +236,6 @@ class SmileDecoder
             return;
         }
 
-        dump(sprintf('Value ||| keyValue : %s, value : %s', $this->currentKey, $value));
-
         // If not in a nested structure, we write the value directly in the results array
         if (!$this->depthLevel) {
             if ($this->currentKey) {
@@ -285,8 +283,6 @@ class SmileDecoder
             default => null, // We do nothing for 252 > 254
         });
 
-        dump(sprintf('Key ||| keyValue : %s', $this->currentKey));
-
         $this->isDecodingKey = false;
     }
 
@@ -310,41 +306,6 @@ class SmileDecoder
             Bytes::LITERAL_FALSE => false,
             Bytes::LITERAL_TRUE => true
         };
-    }
-
-    /** @throws ShouldBeSkippedException */
-    private function writeStructureStart(array &$structure): void
-    {
-        // All smile files start with either an array or an object and we dont want to count these as nested structures.
-        if ($this->index > 1) {
-            ++$this->depthLevel;
-            $structure[$this->depthLevel] = [];
-        }
-
-        // We want to skip writing a value when we start a nested object.
-        if ($structure === $this->nestedObjects) {
-            $this->isDecodingKey = true;
-            $this->currentKey = null;
-            throw new ShouldBeSkippedException();
-        }
-    }
-
-    /** @throws ShouldBeSkippedException */
-    private function writeStructureEnd(array &$structure): void
-    {
-        // Same as above : we skip the main structure.
-        if (count($this->bytesArray) === $this->index) {
-            throw new ShouldBeSkippedException();
-        }
-
-        if ($this->depthLevel - 1 > 0) {
-            $structure[$this->depthLevel - 1][] = $structure[$this->depthLevel];
-            unset($structure[$this->depthLevel]);
-        } else {
-            $this->resultArray[] = $structure[$this->depthLevel];
-        }
-
-        --$this->depthLevel;
     }
 
     private function writeInteger(int $byte): int
@@ -436,23 +397,66 @@ class SmileDecoder
 
     private function writeArrayStart(): void
     {
-        $this->writeStructureStart($this->nestedArrays);
+        // All smile files start with either an array or an object and we dont want to count these as nested structures.
+        if ($this->index > 1) {
+            ++$this->depthLevel;
+            $this->nestedArrays[$this->depthLevel] = [];
+        }
     }
 
+    /** @throws ShouldBeSkippedException */
     private function writeArrayEnd(): void
     {
-        $this->writeStructureEnd($this->nestedArrays);
+        // Same as above : we skip the main structure.
+        if (count($this->bytesArray) === $this->index) {
+            throw new ShouldBeSkippedException();
+        }
+
+        if ($this->depthLevel - 1) {
+            $this->nestedArrays[$this->depthLevel - 1][] = $this->nestedArrays[$this->depthLevel];
+            unset($this->nestedArrays[$this->depthLevel]);
+        } else {
+            $this->resultArray[] = $this->nestedArrays[$this->depthLevel];
+        }
+
+        --$this->depthLevel;
     }
 
     private function writeObjectStart(): void
     {
-        $this->writeStructureStart($this->nestedObjects);
+        // All smile files start with either an array or an object and we dont want to count these as nested structures.
+        if ($this->index > 1) {
+            ++$this->depthLevel;
+
+            if ($this->depthLevel) {
+                $this->resultArray[$this->currentKey] = [];
+            } else {
+                $this->nestedObjects[$this->depthLevel][$this->currentKey] = [];
+            }
+        }
+
         $this->isDecodingKey = true;
+
+        // We want to skip writing a value when we start a nested object.
+        throw new ShouldBeSkippedException();
     }
 
     private function writeObjectEnd(): void
     {
-        $this->writeStructureEnd($this->nestedObjects);
+        // Same as above : we skip the main structure.
+        if (count($this->bytesArray) === $this->index) {
+            throw new ShouldBeSkippedException();
+        }
+
+        if ($this->depthLevel - 1) {
+            $previousArray = $this->nestedObjects[$this->depthLevel - 1];
+            $previousArray[array_key_last($previousArray)] = $this->nestedObjects[$this->depthLevel];
+            unset($this->nestedObjects[$this->depthLevel]);
+        } else {
+            $this->resultArray[array_key_last($this->resultArray)] = $this->nestedObjects[$this->depthLevel];
+        }
+
+        --$this->depthLevel;
     }
 
     private function endBodyDecoding(): ?string
