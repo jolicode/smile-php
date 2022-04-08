@@ -26,10 +26,7 @@ class SmileDecoder
     private int $depthLevel = 0; // Used to know how far we are in a nested structure
 
     /** @var mixed[] */
-    private array $nestedArrays = [];  // Used to construct arrays.
-
-    /** @var mixed[] */
-    private array $nestedObjects = [];  // Used to construct objects.
+    private array $nestedStructures = [];  // Used to construct objects.
     private ?string $currentKey = null; // The current object key we are decoding.
     private bool $isDecodingKey = false; // A flag used to know if we are decoding an object or an array.
 
@@ -223,10 +220,10 @@ class SmileDecoder
                 $byte < Bytes::THRESHOLD_LONG_SHARED_STRING => $this->write7BitsEncoded(), // 232 > 235 is for 7 bits encoded values.
                 $byte < Bytes::THRESHOLD_HEADER_BIT_VERSION => $this->writeLongSharedString(), // 235 > 239 is for long strings shared values.
                 $byte < Bytes::THRESHOLD_STRUCTURE_LITERALS => throw new ShouldBeSkippedException(), // 240 > 247 is reserved for future use.
-                Bytes::LITERAL_ARRAY_START === $byte => $this->writeArrayStart(), // 248 is array start
-                Bytes::LITERAL_ARRAY_END === $byte => $this->writeArrayEnd(), // 249 is array end
-                Bytes::LITERAL_OBJECT_START === $byte => $this->writeObjectStart(), // 250 is object start
-                Bytes::LITERAL_OBJECT_END === $byte => $this->writeObjectEnd(), // 251 is object end
+                Bytes::LITERAL_ARRAY_START === $byte => $this->writeStructureStart(), // 248 is array start
+                Bytes::LITERAL_ARRAY_END === $byte => $this->writeStructureEnd(), // 249 is array end
+                Bytes::LITERAL_OBJECT_START === $byte => $this->writeStructureStart(true), // 250 is object start
+                Bytes::LITERAL_OBJECT_END === $byte => $this->writeStructureEnd(), // 251 is object end
                 Bytes::MARKER_END_OF_STRING === $byte => throw new UnexpectedValueException('An end of string byte was found while decoding the body.'), // 252 is end of string marker
                 Bytes::RAW_BINARY === $byte => throw new ShouldBeSkippedException(), // TODO: implement Raw Binary
                 Bytes::MARKER_END_OF_CONTENT === $byte => $this->endBodyDecoding(), // 254 is end of content marker
@@ -236,23 +233,20 @@ class SmileDecoder
             return;
         }
 
-        // If not in a nested structure, we write the value directly in the results array
-        if (!$this->depthLevel) {
-            if ($this->currentKey) {
+        if ($this->currentKey) {
+            if ($this->depthLevel) {
+                $this->nestedStructures[$this->depthLevel][$this->currentKey] = $value;
+            } else {
                 $this->resultArray[$this->currentKey] = $value;
-                $this->isDecodingKey = true;
-                $this->currentKey = null;
+            }
+
+            $this->isDecodingKey = true;
+            $this->currentKey = null;
+        } else {
+            if ($this->depthLevel) {
+                $this->nestedStructures[$this->depthLevel][] = $value;
             } else {
                 $this->resultArray[] = $value;
-            }
-        // Else we write the value in the corresponding nested structure
-        } else {
-            if ($this->currentKey) {
-                $this->nestedObjects[$this->depthLevel][$this->currentKey] = $value;
-                $this->isDecodingKey = true;
-                $this->currentKey = null;
-            } else {
-                $this->nestedArrays[$this->depthLevel][] = $value;
             }
         }
     }
@@ -265,23 +259,27 @@ class SmileDecoder
             return;
         }
 
-        $this->currentKey = (match (true) {
-            $byte < Bytes::THRESHOLD_SIMPLE_LITERALS => null, // 0 > 31 are reserved
-            Bytes::LITERAL_EMPTY_STRING === $byte => '""',
-            $byte < Bytes::THRESHOLD_LONG_SHARED_KEY => null, // 33 > 37 are reserved
-            $byte < Bytes::KEY_LONG_KEY_NAME => null, // TODO: implement long shared key references
-            Bytes::KEY_LONG_KEY_NAME === $byte => null, // TODO: implement long key name
-            $byte < Bytes::KEY_FORBIDDEN_KEY => null, // 53 > 57 are reserved
-            Bytes::KEY_FORBIDDEN_KEY === $byte => throw new UnexpectedValueException('Byte of decimal value 58 was found while decoding a key but this byte is forbidden for keys.'),
-            $byte < Bytes::KEY_SHORT_SHARED_REFERENCE => null, // 59 > 63 are reserved
-            $byte < Bytes::KEY_SHORT_ASCII => $this->writeShortSharedKey(), // 64 > 127 are short shared keys
-            $byte < Bytes::KEY_SHORT_UNICODE => $this->writeAsciiOrUnicode($byte, 1, false), // 128 > 191 are short ASCII
-            $byte < Bytes::LITERAL_ARRAY_START => $this->writeAsciiOrUnicode($byte, 2, false), // 192 > 247 are short Unicodes
-            $byte < Bytes::LITERAL_ARRAY_START => $this->writeShortUnicodeKey($byte), // 192 > 247 are short Unicodes
-            $byte < Bytes::LITERAL_ARRAY_END => null, // 248 > 250 are reserved
-            Bytes::LITERAL_OBJECT_END === $byte => $this->writeObjectEnd(),
-            default => null, // We do nothing for 252 > 254
-        });
+        try {
+            $this->currentKey = (match (true) {
+                $byte < Bytes::THRESHOLD_SIMPLE_LITERALS => null, // 0 > 31 are reserved
+                Bytes::LITERAL_EMPTY_STRING === $byte => '""',
+                $byte < Bytes::THRESHOLD_LONG_SHARED_KEY => null, // 33 > 37 are reserved
+                $byte < Bytes::KEY_LONG_KEY_NAME => null, // TODO: implement long shared key references
+                Bytes::KEY_LONG_KEY_NAME === $byte => null, // TODO: implement long key name
+                $byte < Bytes::KEY_FORBIDDEN_KEY => null, // 53 > 57 are reserved
+                Bytes::KEY_FORBIDDEN_KEY === $byte => throw new UnexpectedValueException('Byte of decimal value 58 was found while decoding a key but this byte is forbidden for keys.'),
+                $byte < Bytes::KEY_SHORT_SHARED_REFERENCE => null, // 59 > 63 are reserved
+                $byte < Bytes::KEY_SHORT_ASCII => $this->writeShortSharedKey(), // 64 > 127 are short shared keys
+                $byte < Bytes::KEY_SHORT_UNICODE => $this->writeAsciiOrUnicode($byte, 1, false), // 128 > 191 are short ASCII
+                $byte < Bytes::LITERAL_ARRAY_START => $this->writeAsciiOrUnicode($byte, 2, false), // 192 > 247 are short Unicodes
+                $byte < Bytes::LITERAL_ARRAY_START => $this->writeShortUnicodeKey($byte), // 192 > 247 are short Unicodes
+                $byte < Bytes::LITERAL_ARRAY_END => null, // 248 > 250 are reserved
+                Bytes::LITERAL_OBJECT_END === $byte => $this->writeStructureEnd(),
+                default => null, // We do nothing for 252 > 254
+            });
+        } catch (ShouldBeSkippedException $exception) {
+            return;
+        }
 
         $this->isDecodingKey = false;
     }
@@ -395,68 +393,48 @@ class SmileDecoder
         return $value;
     }
 
-    private function writeArrayStart(): void
+    private function writeStructureStart(bool $isObject = false): void
     {
         // All smile files start with either an array or an object and we dont want to count these as nested structures.
         if ($this->index > 1) {
-            ++$this->depthLevel;
-            $this->nestedArrays[$this->depthLevel] = [];
-        }
-    }
+            $key = $this->currentKey ?: count($this->resultArray);
 
-    /** @throws ShouldBeSkippedException */
-    private function writeArrayEnd(): void
-    {
-        // Same as above : we skip the main structure.
-        if (count($this->bytesArray) === $this->index) {
-            throw new ShouldBeSkippedException();
-        }
-
-        if ($this->depthLevel - 1) {
-            $this->nestedArrays[$this->depthLevel - 1][] = $this->nestedArrays[$this->depthLevel];
-            unset($this->nestedArrays[$this->depthLevel]);
-        } else {
-            $this->resultArray[] = $this->nestedArrays[$this->depthLevel];
-        }
-
-        --$this->depthLevel;
-    }
-
-    private function writeObjectStart(): void
-    {
-        // All smile files start with either an array or an object and we dont want to count these as nested structures.
-        if ($this->index > 1) {
-            ++$this->depthLevel;
-
-            if ($this->depthLevel) {
-                $this->resultArray[$this->currentKey] = [];
+            if ($this->depthLevel > 1) {
+                $this->nestedStructures[$this->depthLevel][$key] = [];
             } else {
-                $this->nestedObjects[$this->depthLevel][$this->currentKey] = [];
+                $this->resultArray[$key] = [];
             }
+            ++$this->depthLevel;
         }
 
-        $this->isDecodingKey = true;
+        if ($isObject) {
+            $this->isDecodingKey = true;
+        }
 
-        // We want to skip writing a value when we start a nested object.
+        // We want to skip writing a value when we start a structure.
         throw new ShouldBeSkippedException();
     }
 
-    private function writeObjectEnd(): void
+    private function writeStructureEnd(): void
     {
         // Same as above : we skip the main structure.
         if (count($this->bytesArray) === $this->index) {
             throw new ShouldBeSkippedException();
         }
 
-        if ($this->depthLevel - 1) {
-            $previousArray = $this->nestedObjects[$this->depthLevel - 1];
-            $previousArray[array_key_last($previousArray)] = $this->nestedObjects[$this->depthLevel];
-            unset($this->nestedObjects[$this->depthLevel]);
+        if ($this->depthLevel - 1 > 0) {
+            $previousArray = $this->nestedStructures[$this->depthLevel - 1];
+            $previousArray[array_key_last($previousArray)] = $this->nestedStructures[$this->depthLevel];
         } else {
-            $this->resultArray[array_key_last($this->resultArray)] = $this->nestedObjects[$this->depthLevel];
+            $this->resultArray[array_key_last($this->resultArray)] = $this->nestedStructures[$this->depthLevel];
         }
 
+        unset($this->nestedStructures[$this->depthLevel]);
+
         --$this->depthLevel;
+
+        // We want to skip writing a value when we end a structure.
+        throw new ShouldBeSkippedException();
     }
 
     private function endBodyDecoding(): ?string
