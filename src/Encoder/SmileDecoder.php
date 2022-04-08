@@ -7,20 +7,31 @@
 namespace Jolicode\SmilePhp\Encoder;
 
 use Jolicode\SmilePhp\Enum\Bytes;
+use Jolicode\SmilePhp\Exception\ShouldBeSkippedException;
 use Jolicode\SmilePhp\Exception\UnexpectedValueException;
 
 class SmileDecoder
 {
     private bool $isFullyDecoded = false;
-    private bool $isDecodingKey = false;
 
     /** @var int[] */
     private array $bytesArray = [];
+
+    /** @var mixed[] */
+    private array $resultArray = [];
 
     private string $outputFile = __DIR__ . '/../../files/decode/output.json';
 
     private int $index = 1; // index is 1 because unpack method returns a 1 indexed array
     private int $depthLevel = 0; // Used to know how far we are in a nested structure
+
+    /** @var mixed[] */
+    private array $nestedArrays = [];  // Used to construct arrays.
+
+    /** @var mixed[] */
+    private array $nestedObjects = [];  // Used to construct objects.
+    private ?string $currentKey = null; // The current object key we are decoding.
+    private bool $isDecodingKey = false; // A flag used to know if we are decoding an object or an array.
 
     /** @var string[] */
     private array $sharedKeyStrings = [];
@@ -28,7 +39,7 @@ class SmileDecoder
     /** @var string[] */
     private array $sharedValueStrings = [];
 
-    public function decode(string $smileData): string
+    public function decode(string $smileData): array
     {
         file_put_contents($this->outputFile, null);
         $this->bytesArray = unpack('C*', $smileData);
@@ -39,18 +50,11 @@ class SmileDecoder
             if ($this->isDecodingKey) {
                 $this->decodeKey();
             } else {
-                $this->decodeBody();
+                $this->decodeValue();
             }
         }
 
-        $this->output("\n");
-
-        return file_get_contents($this->outputFile);
-    }
-
-    private function output(mixed $data): void
-    {
-        file_put_contents($this->outputFile, $data, \FILE_APPEND);
+        return $this->resultArray;
     }
 
     private function getNextByte(): ?int
@@ -189,11 +193,11 @@ class SmileDecoder
             throw new UnexpectedValueException(sprintf('Error while decoding the smile header. Smile header should be ":)\n" but "%s" was found.', $header));
         }
 
-        $this->bytesArray = \array_slice($this->bytesArray, 3);
+        $this->bytesArray = \array_slice($this->bytesArray, 4);
         $this->index = 0;
     }
 
-    private function decodeBody(): void
+    private function decodeValue(): void
     {
         $byte = $this->getNextByte();
 
@@ -201,50 +205,56 @@ class SmileDecoder
             return;
         }
 
-        if (Bytes::LITERAL_ARRAY_END === $byte || Bytes::LITERAL_OBJECT_END === $byte) {
-            --$this->depthLevel;
-            $this->output("\n");
+        try {
+            $value = match (true) {
+                Bytes::NULL_BYTE === $byte => throw new ShouldBeSkippedException(),
+                $byte < Bytes::THRESHOLD_SIMPLE_LITERALS => $this->writeSharedString($byte), // 1 > 31 values are string shared values.
+                $byte < Bytes::THRESHOLD_INTEGERS => $this->writeSimpleLiteral($byte), // 32 > 35 are simple literals.
+                $byte < Bytes::THRESHOLD_FLOATS => $this->writeInteger($byte), // 36 > 39 are integers.
+                $byte < Bytes::THRESHOLD_RESERVED => $this->writeFloat($byte), // 40 > 42 are floats.
+                $byte < Bytes::THRESHOLD_TINY_ASCII => throw new ShouldBeSkippedException(), // 43 > 63 is reserved for future use.
+                $byte < Bytes::THRESHOLD_SMALL_ASCII => $this->writeAsciiOrUnicode($byte, 1), // 64 > 96 are tiny ASCII.
+                $byte < Bytes::THRESHOLD_TINY_UNICODE => $this->writeAsciiOrUnicode($byte, 33), // 97 > 127 are small ASCII.
+                $byte < Bytes::THRESHOLD_SMALL_UNICODE => $this->writeAsciiOrUnicode($byte, 2), // 128 > 159 are tiny Unicode.
+                $byte < Bytes::THRESHOLD_SMALL_INT => $this->writeAsciiOrUnicode($byte, 34), // 160 > 191 are small Unicode.
+                $byte < Bytes::THRESHOLD_LONG_ASCII => $this->writeSmallInt($byte), // 192 > 223 are small int.
+                $byte < Bytes::THRESHOLD_LONG_UNICODE => $this->writeLongASCII(),  // 224 > 227 are long ASCII.
+                $byte < Bytes::THRESHOLD_7BITS => $this->writeLongUnicode(), // 228 > 231 are long unicode.
+                $byte < Bytes::THRESHOLD_LONG_SHARED_STRING => $this->write7BitsEncoded(), // 232 > 235 is for 7 bits encoded values.
+                $byte < Bytes::THRESHOLD_HEADER_BIT_VERSION => $this->writeLongSharedString(), // 235 > 239 is for long strings shared values.
+                $byte < Bytes::THRESHOLD_STRUCTURE_LITERALS => throw new ShouldBeSkippedException(), // 240 > 247 is reserved for future use.
+                Bytes::LITERAL_ARRAY_START === $byte => $this->writeArrayStart(), // 248 is array start
+                Bytes::LITERAL_ARRAY_END === $byte => $this->writeArrayEnd(), // 249 is array end
+                Bytes::LITERAL_OBJECT_START === $byte => $this->writeObjectStart(), // 250 is object start
+                Bytes::LITERAL_OBJECT_END === $byte => $this->writeObjectEnd(), // 251 is object end
+                Bytes::MARKER_END_OF_STRING === $byte => throw new UnexpectedValueException('An end of string byte was found while decoding the body.'), // 252 is end of string marker
+                Bytes::RAW_BINARY === $byte => throw new ShouldBeSkippedException(), // TODO: implement Raw Binary
+                Bytes::MARKER_END_OF_CONTENT === $byte => $this->endBodyDecoding(), // 254 is end of content marker
+                default => throw new UnexpectedValueException(sprintf('Given byte does\'t exist. Given byte has value %d but decimal bytes range from 0 to 254.', $byte))
+            };
+        } catch (ShouldBeSkippedException $exception) {
+            return;
         }
 
-        if ($this->depthLevel) {
-            foreach (range(1, $this->depthLevel) as $indent) {
-                $this->output('  ');
+        dump(sprintf('Value ||| keyValue : %s, value : %s', $this->currentKey, $value));
+
+        // If not in a nested structure, we write the value directly in the results array
+        if (!$this->depthLevel) {
+            if ($this->currentKey) {
+                $this->resultArray[$this->currentKey] = $value;
+                $this->isDecodingKey = true;
+                $this->currentKey = null;
+            } else {
+                $this->resultArray[] = $value;
             }
-        }
-
-        $this->output(match (true) {
-            Bytes::NULL_BYTE === $byte => null,
-            $byte < Bytes::THRESHOLD_SIMPLE_LITERALS => $this->writeSharedString($byte), // 1 > 31 values are string shared values.
-            $byte < Bytes::THRESHOLD_INTEGERS => $this->writeSimpleLitteral($byte), // 32 > 35 are simple litterals.
-            $byte < Bytes::THRESHOLD_FLOATS => $this->writeInteger($byte), // 36 > 39 are integers.
-            $byte < Bytes::THRESHOLD_RESERVED => $this->writeFloat($byte), // 40 > 42 are floats.
-            $byte < Bytes::THRESHOLD_TINY_ASCII => null, // 43 > 63 is reserved for future use.
-            $byte < Bytes::THRESHOLD_SMALL_ASCII => $this->writeAsciiOrUnicode($byte, 1), // 64 > 96 are tiny ASCII.
-            $byte < Bytes::THRESHOLD_TINY_UNICODE => $this->writeAsciiOrUnicode($byte, 33), // 97 > 127 are small ASCII.
-            $byte < Bytes::THRESHOLD_SMALL_UNICODE => $this->writeAsciiOrUnicode($byte, 2), // 128 > 159 are tiny Unicode.
-            $byte < Bytes::THRESHOLD_SMALL_INT => $this->writeAsciiOrUnicode($byte, 34), // 160 > 191 are small Unicode.
-            $byte < Bytes::THRESHOLD_LONG_ASCII => $this->writeSmallInt($byte), // 192 > 223 are small int.
-            $byte < Bytes::THRESHOLD_LONG_UNICODE => $this->writeLongASCII(),  // 224 > 227 are long ASCII.
-            $byte < Bytes::THRESHOLD_7BITS => $this->writeLongUnicode(), // 228 > 231 are long unicode.
-            $byte < Bytes::THRESHOLD_LONG_SHARED_STRING => $this->write7BitsEncoded(), // 232 > 235 is for 7 bits encoded values.
-            $byte < Bytes::THRESHOLD_HEADER_BIT_VERSION => $this->writeLongSharedString(), // 235 > 239 is for long strings shared values.
-            $byte < Bytes::THRESHOLD_STRUCTURE_LITERALS => null, // 240 > 247 is reserved for future use.
-            Bytes::LITERAL_ARRAY_START === $byte => $this->writeArrayStart(), // 248 is array start
-            Bytes::LITERAL_ARRAY_END === $byte => $this->writeArrayEnd(), // 249 is array end
-            Bytes::LITERAL_OBJECT_START === $byte => $this->writeObjectStart(), // 250 is object start
-            Bytes::LITERAL_OBJECT_END === $byte => $this->writeObjectEnd(), // 251 is object end
-            Bytes::MARKER_END_OF_STRING === $byte => throw new UnexpectedValueException('An end of string byte was found while decoding the body.'), // 252 is end of string marker
-            Bytes::RAW_BINARY === $byte => null, // TODO: implement Raw Binary
-            Bytes::MARKER_END_OF_CONTENT === $byte => $this->endBodyDecoding(), // 254 is end of content marker
-            default => throw new UnexpectedValueException(sprintf('Given byte does\'t exist. Given byte has value %d but decimal bytes range from 0 to 254.', $byte))
-        });
-
-        if ($this->depthLevel) {
-            if (
-                (Bytes::LITERAL_ARRAY_START !== $byte && Bytes::LITERAL_ARRAY_END !== $this->bytesArray[$this->index]) &&
-                (Bytes::LITERAL_OBJECT_START !== $byte && Bytes::LITERAL_OBJECT_END !== $this->bytesArray[$this->index])
-            ) {
-                $this->output(",\n");
+        // Else we write the value in the corresponding nested structure
+        } else {
+            if ($this->currentKey) {
+                $this->nestedObjects[$this->depthLevel][$this->currentKey] = $value;
+                $this->isDecodingKey = true;
+                $this->currentKey = null;
+            } else {
+                $this->nestedArrays[$this->depthLevel][] = $value;
             }
         }
     }
@@ -257,11 +267,7 @@ class SmileDecoder
             return;
         }
 
-        foreach (range(1, $this->depthLevel) as $indent) {
-            $this->output('  ');
-        }
-
-        $this->output(match (true) {
+        $this->currentKey = (match (true) {
             $byte < Bytes::THRESHOLD_SIMPLE_LITERALS => null, // 0 > 31 are reserved
             Bytes::LITERAL_EMPTY_STRING === $byte => '""',
             $byte < Bytes::THRESHOLD_LONG_SHARED_KEY => null, // 33 > 37 are reserved
@@ -271,14 +277,17 @@ class SmileDecoder
             Bytes::KEY_FORBIDDEN_KEY === $byte => throw new UnexpectedValueException('Byte of decimal value 58 was found while decoding a key but this byte is forbidden for keys.'),
             $byte < Bytes::KEY_SHORT_SHARED_REFERENCE => null, // 59 > 63 are reserved
             $byte < Bytes::KEY_SHORT_ASCII => $this->writeShortSharedKey(), // 64 > 127 are short shared keys
-            $byte < Bytes::KEY_SHORT_UNICODE => $this->writeShortAsciiKey($byte), // 128 > 191 are short ASCII
+            $byte < Bytes::KEY_SHORT_UNICODE => $this->writeAsciiOrUnicode($byte, 1, false), // 128 > 191 are short ASCII
+            $byte < Bytes::LITERAL_ARRAY_START => $this->writeAsciiOrUnicode($byte, 2, false), // 192 > 247 are short Unicodes
             $byte < Bytes::LITERAL_ARRAY_START => $this->writeShortUnicodeKey($byte), // 192 > 247 are short Unicodes
             $byte < Bytes::LITERAL_ARRAY_END => null, // 248 > 250 are reserved
             Bytes::LITERAL_OBJECT_END === $byte => $this->writeObjectEnd(),
-            default => null, // We do nothing for 251 > 254
+            default => null, // We do nothing for 252 > 254
         });
 
-        $this->decodeBody();
+        dump(sprintf('Key ||| keyValue : %s', $this->currentKey));
+
+        $this->isDecodingKey = false;
     }
 
     private function writeSharedString(int $byte): string
@@ -293,17 +302,52 @@ class SmileDecoder
         return '';
     }
 
-    private function writeSimpleLitteral(int $byte): string
+    private function writeSimpleLiteral(int $byte): mixed
     {
         return match ($byte) {
             Bytes::LITERAL_EMPTY_STRING => '""',
-            Bytes::LITERAL_NULL => 'null',
-            Bytes::LITERAL_FALSE => 'false',
-            Bytes::LITERAL_TRUE => 'true'
+            Bytes::LITERAL_NULL => null,
+            Bytes::LITERAL_FALSE => false,
+            Bytes::LITERAL_TRUE => true
         };
     }
 
-    private function writeInteger(int $byte): ?string
+    /** @throws ShouldBeSkippedException */
+    private function writeStructureStart(array &$structure): void
+    {
+        // All smile files start with either an array or an object and we dont want to count these as nested structures.
+        if ($this->index > 1) {
+            ++$this->depthLevel;
+            $structure[$this->depthLevel] = [];
+        }
+
+        // We want to skip writing a value when we start a nested object.
+        if ($structure === $this->nestedObjects) {
+            $this->isDecodingKey = true;
+            $this->currentKey = null;
+            throw new ShouldBeSkippedException();
+        }
+    }
+
+    /** @throws ShouldBeSkippedException */
+    private function writeStructureEnd(array &$structure): void
+    {
+        // Same as above : we skip the main structure.
+        if (count($this->bytesArray) === $this->index) {
+            throw new ShouldBeSkippedException();
+        }
+
+        if ($this->depthLevel - 1 > 0) {
+            $structure[$this->depthLevel - 1][] = $structure[$this->depthLevel];
+            unset($structure[$this->depthLevel]);
+        } else {
+            $this->resultArray[] = $structure[$this->depthLevel];
+        }
+
+        --$this->depthLevel;
+    }
+
+    private function writeInteger(int $byte): int
     {
         $result = match ($byte) {
             Bytes::INT_32 => $this->zigZagDecode($this->decodeInt()),
@@ -323,14 +367,18 @@ class SmileDecoder
         };
     }
 
-    private function writeAsciiOrUnicode(int $byte, $bits): string
+    private function writeAsciiOrUnicode(int $byte, int $bits, bool $isKey = false): string
     {
         $length = ($byte & 31) + $bits;
         $result = $this->decodeStringValue($length);
 
-        $this->sharedValueStrings[$byte & 31] = $result;
+        if ($isKey) {
+            $this->sharedKeyStrings[$byte & 31] = $result;
+        } else {
+            $this->sharedValueStrings[$byte & 31] = $result;
+        }
 
-        return sprintf('"%s"', $result);
+        return $result;
     }
 
     private function writeSmallInt(int $byte): int
@@ -347,7 +395,7 @@ class SmileDecoder
 
         $this->index = $stringLength + 1;
 
-        return sprintf('"%s"', $string);
+        return $string;
     }
 
     private function writeLongUnicode()
@@ -386,52 +434,38 @@ class SmileDecoder
         return $value;
     }
 
-    private function writeArrayStart(): string
+    private function writeArrayStart(): void
     {
-        ++$this->depthLevel;
-
-        return "[\n";
+        $this->writeStructureStart($this->nestedArrays);
     }
 
-    private function writeArrayEnd(): string
+    private function writeArrayEnd(): void
     {
-        return ']';
+        $this->writeStructureEnd($this->nestedArrays);
     }
 
-    private function writeObjectStart(): string
+    private function writeObjectStart(): void
     {
-        ++$this->depthLevel;
-
+        $this->writeStructureStart($this->nestedObjects);
         $this->isDecodingKey = true;
-
-        return "{\n";
     }
 
-    private function writeObjectEnd(): string
+    private function writeObjectEnd(): void
     {
-        --$this->depthLevel;
-        $this->isDecodingKey = (bool) $this->depthLevel;
-
-        dd($this->bytesArray[$this->index]);
-
-        return '}';
+        $this->writeStructureEnd($this->nestedObjects);
     }
 
     private function endBodyDecoding(): ?string
     {
         $this->isFullyDecoded = true;
 
-        // TODO: smile data files seem to be missing the end of file byte. Until we know why, we add the trailing \n in the decode method, but it should be here.
         return null;
     }
 
     private function writeShortSharedKey(): ?string
     {
         if (\array_key_exists($this->bytesArray[$this->index - 1] - 64, $this->sharedKeyStrings)) {
-            return sprintf(
-                '"%s"',
-                $this->sharedKeyStrings[$this->bytesArray[$this->index - 1] - 64]
-            );
+            return $this->sharedKeyStrings[$this->bytesArray[$this->index - 1] - 64];
         }
 
         return null;
@@ -444,16 +478,17 @@ class SmileDecoder
 
         $this->sharedKeyStrings[$byte & 31] = $result;
 
-        return sprintf('"%s" : ', $result);
+        return $result;
     }
 
     private function writeShortUnicodeKey(int $byte): string
     {
+        dd('ok');
         $length = ($byte & 192) + 2;
         $result = $this->decodeStringValue($length);
 
         $this->sharedKeyStrings[$byte & 192] = $result;
 
-        return sprintf('"%s" : ', $result);
+        return $result;
     }
 }

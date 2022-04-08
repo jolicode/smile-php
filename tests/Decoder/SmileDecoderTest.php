@@ -15,25 +15,24 @@ class SmileDecoderTest extends TestCase
     }
 
     /** @dataProvider provideIntegers */
-    public function testIntegers(string $smile, string $json)
+    public function testIntegers(string $fileName)
     {
-        $encoded = file_get_contents($smile);
-        $expected = file_get_contents($json);
-        $actual = $this->decoder->decode($encoded);
+        $file = sprintf('%s%s%s', __DIR__, '/../../tests/data/', $fileName);
 
-        $this->assertSame($expected, $actual);
+        $smile = file_get_contents($file . '.smile');
+        $json = file_get_contents($file . '.json');
+        $results = $this->decoder->decode($smile);
+        // dd();
+        dd($results);
+
+        $this->assertSame(json_decode($json), $results);
     }
 
     public function provideIntegers()
     {
-        yield [
-            'smile' => __DIR__ . '/../../tests/data/numbers-int-4k.smile',
-            'json' => __DIR__ . '/../../tests/data/numbers-int-4k.json',
-        ];
-        yield [
-            'smile' => __DIR__ . '/../../tests/data/numbers-int-64k.smile',
-            'json' => __DIR__ . '/../../tests/data/numbers-int-64k.json',
-        ];
+        // yield ['fileName' => 'numbers-int-4k'];
+        // yield ['fileName' => 'numbers-int-64k'];
+        yield ['fileName' => 'test1'];
         // Not working for now :(
         // yield [
         //     'smile' => __DIR__ . '/../../tests/data/numbers-fp-4k.smile',
@@ -43,9 +42,9 @@ class SmileDecoderTest extends TestCase
         //     'smile' => __DIR__ . '/../../tests/data/numbers-fp-64k.smile',
         //     'json' => __DIR__ . '/../../tests/data/numbers-fp-64k.json',
         // ];
-        yield [
-            'smile' => __DIR__ . '/../../tests/data/test1.smile',
-            'json' => __DIR__ . '/../../tests/data/test1.json',
-        ];
+        // yield [
+        //     'smile' => __DIR__ . '/../../tests/data/test1.smile',
+        //     'json' => __DIR__ . '/../../tests/data/test1.json',
+        // ];
     }
 }

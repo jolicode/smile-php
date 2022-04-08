@@ -1,2 +1,5 @@
 /vendor/
 /.php-cs-fixer.cache
+
+/files/decode/output.php
+/files/decode/input.php
