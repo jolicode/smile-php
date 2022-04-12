@@ -6,7 +6,7 @@
 
 namespace Jolicode\SmilePhp\Decoder;
 
-use Jolicode\SmilePhp\Encoder\SmileDecoder;
+use Jolicode\SmilePhp\Decoder\SmileDecoder;
 use PHPUnit\Framework\TestCase;
 
 class SmileDecoderTest extends TestCase
@@ -18,7 +18,11 @@ class SmileDecoderTest extends TestCase
         $this->decoder = new SmileDecoder();
     }
 
-    /** @dataProvider provideIntegers */
+    /**
+     * @dataProvider provideIntegers
+     *
+     * @covers SmileDecoder::decode
+     * */
     public function testDecode(string $fileName)
     {
         $file = sprintf('%s%s%s', __DIR__, '/../../tests/data/', $fileName);
@@ -27,15 +31,15 @@ class SmileDecoderTest extends TestCase
         $json = file_get_contents($file . '.json');
         $results = $this->decoder->decode($smile);
         // dd();
-        dd($results);
+        // dd($results);
         $this->assertSame(json_decode($json), $results);
     }
 
     public function provideIntegers()
     {
-        // yield ['fileName' => 'numbers-int-4k'];
+        yield ['fileName' => 'numbers-int-4k'];
         // yield ['fileName' => 'numbers-int-64k'];
-        yield ['fileName' => 'test1'];
+        // yield ['fileName' => 'test1'];
         // Not working for now :(
         // yield [
         //     'smile' => __DIR__ . '/../../tests/data/numbers-fp-4k.smile',

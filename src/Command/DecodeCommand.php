@@ -6,7 +6,7 @@
 
 namespace Jolicode\SmilePhp\Command;
 
-use Jolicode\SmilePhp\Encoder\SmileDecoder;
+use Jolicode\SmilePhp\Decoder\SmileDecoder;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
