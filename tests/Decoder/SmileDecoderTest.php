@@ -30,16 +30,16 @@ class SmileDecoderTest extends TestCase
         $smile = file_get_contents($file . '.smile');
         $json = file_get_contents($file . '.json');
         $results = $this->decoder->decode($smile);
-        // dd();
-        // dd($results);
-        $this->assertSame(json_decode($json), $results);
+
+        $this->assertEquals(json_decode($json), $results);
     }
 
     public function provideIntegers()
     {
-        yield ['fileName' => 'numbers-int-4k'];
-        // yield ['fileName' => 'numbers-int-64k'];
-        // yield ['fileName' => 'test1'];
+        yield ['numbers-int-4k'];
+        yield ['numbers-int-64k'];
+        yield ['test1'];
+        yield ['test2'];
         // Not working for now :(
         // yield [
         //     'smile' => __DIR__ . '/../../tests/data/numbers-fp-4k.smile',
