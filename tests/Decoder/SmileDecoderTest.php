@@ -15,7 +15,7 @@ class SmileDecoderTest extends TestCase
     }
 
     /** @dataProvider provideIntegers */
-    public function testIntegers(string $fileName)
+    public function testDecode(string $fileName)
     {
         $file = sprintf('%s%s%s', __DIR__, '/../../tests/data/', $fileName);
 
@@ -23,7 +23,7 @@ class SmileDecoderTest extends TestCase
         $json = file_get_contents($file . '.json');
         $results = $this->decoder->decode($smile);
         // dd();
-        // dd($results);
+        dd($results);
         $this->assertSame(json_decode($json), $results);
     }
 
