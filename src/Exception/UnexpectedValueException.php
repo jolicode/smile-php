@@ -6,8 +6,6 @@
 
 namespace Jolicode\SmilePhp\Exception;
 
-use Exception;
-
-class UnexpectedValueException extends Exception
+class UnexpectedValueException extends \UnexpectedValueException
 {
 }
