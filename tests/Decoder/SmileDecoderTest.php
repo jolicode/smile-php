@@ -24,14 +24,13 @@ class SmileDecoderTest extends TestCase
         $results = $this->decoder->decode($smile);
         // dd();
         // dd($results);
-
         $this->assertSame(json_decode($json), $results);
     }
 
     public function provideIntegers()
     {
-        yield ['fileName' => 'numbers-int-4k'];
-        yield ['fileName' => 'numbers-int-64k'];
+        // yield ['fileName' => 'numbers-int-4k'];
+        // yield ['fileName' => 'numbers-int-64k'];
         yield ['fileName' => 'test1'];
         // Not working for now :(
         // yield [

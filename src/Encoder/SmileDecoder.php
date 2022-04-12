@@ -270,8 +270,7 @@ class SmileDecoder
                 Bytes::KEY_FORBIDDEN_KEY === $byte => throw new UnexpectedValueException('Byte of decimal value 58 was found while decoding a key but this byte is forbidden for keys.'),
                 $byte < Bytes::KEY_SHORT_SHARED_REFERENCE => null, // 59 > 63 are reserved
                 $byte < Bytes::KEY_SHORT_ASCII => $this->writeShortSharedKey(), // 64 > 127 are short shared keys
-                $byte < Bytes::KEY_SHORT_UNICODE => $this->writeAsciiOrUnicode($byte, 1, false), // 128 > 191 are short ASCII
-                $byte < Bytes::LITERAL_ARRAY_START => $this->writeAsciiOrUnicode($byte, 2, false), // 192 > 247 are short Unicodes
+                $byte < Bytes::KEY_SHORT_UNICODE => $this->writeAsciiOrUnicode($byte, 1, true), // 128 > 191 are short ASCII
                 $byte < Bytes::LITERAL_ARRAY_START => $this->writeShortUnicodeKey($byte), // 192 > 247 are short Unicodes
                 $byte < Bytes::LITERAL_ARRAY_END => null, // 248 > 250 are reserved
                 Bytes::LITERAL_OBJECT_END === $byte => $this->writeStructureEnd(),
@@ -328,7 +327,9 @@ class SmileDecoder
 
     private function writeAsciiOrUnicode(int $byte, int $bits, bool $isKey = false): string
     {
+
         $length = ($byte & 31) + $bits;
+
         $result = $this->decodeStringValue($length);
 
         if ($isKey) {
@@ -407,9 +408,8 @@ class SmileDecoder
             ++$this->depthLevel;
         }
 
-        if ($isObject) {
-            $this->isDecodingKey = true;
-        }
+        $this->isDecodingKey = $isObject;
+        $this->currentKey = null;
 
         // We want to skip writing a value when we start a structure.
         throw new ShouldBeSkippedException();
@@ -453,23 +453,32 @@ class SmileDecoder
         return null;
     }
 
-    private function writeShortAsciiKey(int $byte): string
-    {
-        $length = ($byte & 31) + 1;
-        $result = $this->decodeStringValue($length);
-
-        $this->sharedKeyStrings[$byte & 31] = $result;
-
-        return $result;
-    }
-
     private function writeShortUnicodeKey(int $byte): string
     {
-        dd('ok');
-        $length = ($byte & 192) + 2;
-        $result = $this->decodeStringValue($length);
+        $length = ($byte & 31) + 2;
 
-        $this->sharedKeyStrings[$byte & 192] = $result;
+        $result = '';
+        $bytes = \array_slice($this->bytesArray, $this->index, $length);
+        $i = 0;
+
+        while ($i < $length) {
+            $char = $bytes[$i++];
+            $msb4 = $char >> 4;
+
+            if (($msb4 >= 0) && ($msb4 <= 7)) {
+                $result .= mb_chr($char);
+            } elseif (($msb4 >= 12) && ($msb4 <= 13)) {
+                $nextChar = $bytes[$i++];
+                $result .= mb_chr((($char & 31) << 6) | ($nextChar & 63));
+            } else {
+                $nextChar = $bytes[$i++];
+                $nextNextChar = $bytes[$i++];
+                $result .= mb_chr((($byte & 15) << 12) | (($nextChar & 62) << 6) | (($nextNextChar & 62) << 0));
+            }
+        }
+
+        $this->sharedKeyStrings[$byte & 31] = $result;
+        $this->index += $length;
 
         return $result;
     }
