@@ -9,7 +9,6 @@ namespace Jolicode\SmilePhp\Encoder;
 use Jolicode\SmilePhp\Enum\Bytes;
 use Jolicode\SmilePhp\Exception\ShouldBeSkippedException;
 use Jolicode\SmilePhp\Exception\UnexpectedValueException;
-use stdClass;
 
 class SmileDecoder
 {
@@ -28,7 +27,7 @@ class SmileDecoder
     /** @var string[] */
     private array $sharedValueStrings = [];
 
-    public function decode(string $smileData): array|stdClass
+    public function decode(string $smileData): array|\stdClass
     {
         file_put_contents($this->outputFile, null);
         $this->bytesArray = unpack('C*', $smileData);
@@ -37,30 +36,26 @@ class SmileDecoder
 
         $nextStructure = $this->getNextByte();
 
-        if ($nextStructure === Bytes::LITERAL_ARRAY_START) {
-            $result = $this->decodeArray();
-        } elseif ($nextStructure === Bytes::LITERAL_OBJECT_START) {
-            $result = $this->decodeObject();
-        } else {
-            throw new UnexpectedValueException('The smile file seems invalid since it doesn\'t start with an array or an object.');
-        }
-
-        return $result;
+        return match ($nextStructure) {
+            Bytes::LITERAL_ARRAY_START => $this->decodeArray(),
+            Bytes::LITERAL_OBJECT_START => $this->decodeObject(),
+            default => throw new UnexpectedValueException('The smile file seems invalid since it doesn\'t start with an array or an object.'),
+        };
     }
 
     private function decodeHead(): void
     {
         $header = '';
 
-        if ([58, 41, 10] !== array_slice($this->bytesArray, 0, 3)) { // Smile header should be ":)\n", so the decimal bytes must be 58, 41, 10.
-            foreach (array_slice($this->bytesArray, 0, 3) as $byte) {
+        if ([58, 41, 10] !== \array_slice($this->bytesArray, 0, 3)) { // Smile header should be ":)\n", so the decimal bytes must be 58, 41, 10.
+            foreach (\array_slice($this->bytesArray, 0, 3) as $byte) {
                 $header .= mb_chr($byte);
             }
 
             throw new UnexpectedValueException(sprintf('Error while decoding the smile header. Smile header should be ":)\n" but "%s" was found.', $header));
         }
 
-        $this->bytesArray = array_slice($this->bytesArray, 4); // TODO: remove the index 4 slice and handle the 4th header byte
+        $this->bytesArray = \array_slice($this->bytesArray, 4); // TODO: remove the index 4 slice and handle the 4th header byte
         $this->index = 0;
     }
 
@@ -72,13 +67,13 @@ class SmileDecoder
         while (true) {
             $byte = $this->getNextByte();
 
-            if ($byte === Bytes::LITERAL_ARRAY_END || $this->isFullyDecoded) {
+            if (Bytes::LITERAL_ARRAY_END === $byte || $this->isFullyDecoded) {
                 break;
             }
 
             try {
                 $array[] = $this->decodeValue($byte);
-            } catch (ShouldBeSkippedException $exception) {
+            } catch (ShouldBeSkippedException) {
                 continue;
             }
         }
@@ -86,14 +81,14 @@ class SmileDecoder
         return $array;
     }
 
-    private function decodeObject(): stdClass
+    private function decodeObject(): \stdClass
     {
-        $object = new stdClass();
+        $object = new \stdClass();
 
         while (true) {
             $byte = $this->getNextByte();
 
-            if ($byte === Bytes::LITERAL_OBJECT_END || $this->isFullyDecoded) {
+            if (Bytes::LITERAL_OBJECT_END === $byte || $this->isFullyDecoded) {
                 break;
             }
 
@@ -103,8 +98,8 @@ class SmileDecoder
                 $byte = $this->getNextByte();
                 $value = $this->decodeValue($byte);
 
-                $object->$key = $value;
-            } catch (ShouldBeSkippedException $exception) {
+                $object->{$key} = $value;
+            } catch (ShouldBeSkippedException) {
                 continue;
             }
         }
@@ -316,7 +311,6 @@ class SmileDecoder
 
     private function writeAsciiOrUnicode(int $byte, int $bits, bool $isKey = false): string
     {
-
         $length = ($byte & 31) + $bits;
 
         $result = $this->decodeStringValue($length);

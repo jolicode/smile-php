@@ -1,5 +1,6 @@
-/vendor/
 /.php-cs-fixer.cache
-
-/files/decode/output.php
+/.phpunit.cache/
+/composer.lock
 /files/decode/input.php
+/files/decode/output.php
+/vendor/

@@ -1,12 +1,15 @@
 <?php
 
+/*
+ * This file is part of the Smile PHP project, a project by JoliCode.
+ */
+
 $fileHeaderComment = <<<'EOF'
     This file is part of the Smile PHP project, a project by JoliCode.
     EOF;
 
 $finder = PhpCsFixer\Finder::create()
     ->in(__DIR__)
-    ->notPath('src/JoliTypo/Bridge/Symfony/DependencyInjection/Configuration.php')
     ->append([
         __FILE__,
     ])
@@ -15,17 +18,17 @@ $finder = PhpCsFixer\Finder::create()
 return (new PhpCsFixer\Config())
     ->setRiskyAllowed(true)
     ->setRules([
-        '@PHP74Migration' => true,
+        '@PHP81Migration' => true,
         '@PhpCsFixer' => true,
         '@Symfony' => true,
         '@Symfony:risky' => true,
-        'php_unit_internal_class' => false,
-        'php_unit_test_class_requires_covers' => false,
-        'phpdoc_add_missing_param_annotation' => false,
+        'php_unit_internal_class' => false, // From @PhpCsFixer but we don't want it
+        'php_unit_test_class_requires_covers' => false, // From @PhpCsFixer but we don't want it
+        'phpdoc_add_missing_param_annotation' => false, // From @PhpCsFixer but we don't want it
         'header_comment' => ['header' => $fileHeaderComment],
         'concat_space' => ['spacing' => 'one'],
-        'ordered_class_elements' => true,
-        'blank_line_before_statement' => true,
+        'ordered_class_elements' => true, // Symfony(PSR12) override the default value, but we don't want
+        'blank_line_before_statement' => true, // Symfony(PSR12) override the default value, but we don't want
     ])
     ->setFinder($finder)
 ;
