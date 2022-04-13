@@ -38,7 +38,14 @@ class SmileDecoder
             throw new UnexpectedValueException(sprintf('Error while decoding the smile header. Smile header should be ":)\n" but "%s" was found.', $header));
         }
 
-        $this->context->increaseIndex(5); // TODO: remove the index 5 increase and handle the 4th header byte
+        $optionsByte = $this->context->getSpecificByte(4);
+        $version = $optionsByte & 240;
+        $sharedKeys = (bool) ($optionsByte & 1);
+        $sharedValues = (bool) (($optionsByte & 2) >> 1);
+        $rawBinary = (bool) (($optionsByte & 4) >> 2);
+
+        $this->context->setOptions($version, $sharedKeys, $sharedValues, $rawBinary);
+        $this->context->increaseIndex(4);
     }
 
     /** @return mixed[] */
@@ -111,7 +118,7 @@ class SmileDecoder
             $byte === Bytes::LITERAL_OBJECT_START => new DecodingResult($this->decodeObject()), // 250 is object start
             $byte === Bytes::LITERAL_OBJECT_END => throw new UnexpectedValueException(sprintf('An end of object byte was found while decoding a value but it should be skipped. Found when index was %d.', $this->context->getIndex())), // 251 is object end
             $byte === Bytes::MARKER_END_OF_STRING => throw new UnexpectedValueException(sprintf('An end of string byte was found while decoding a value. Found when index was %d.', $this->context->getIndex())), // 252 is end of string marker
-            $byte === Bytes::RAW_BINARY => null, // TODO: implement Raw Binary
+            $byte === Bytes::RAW_BINARY => new DecodingResult(null, true), // TODO: implement Raw Binary
             $byte === Bytes::MARKER_END_OF_CONTENT => new DecodingResult($this->endBodyDecoding(), true), // 254 is end of content marker
             default => throw new UnexpectedValueException(sprintf('Given byte does\'t exist. Given byte has value %d but decimal bytes range from 0 to 254. Found when index was %d.', $byte, $this->context->getIndex()))
         };
@@ -246,12 +253,18 @@ class SmileDecoder
         return $result;
     }
 
+    /** @throws UnexpectedValueException */
     private function writeSharedString(int $byte): ?string
     {
+        if (!$this->context->hasSharedValues()) {
+            throw new UnexpectedValueException('Trying to read a shared value but shared values are disabled.');
+        }
+
         if (\array_key_exists($byte & 31, $this->context->getSharedValues())) {
             return $this->context->getSharedValue($byte & 31);
         }
 
+        // We probably want to throw an exception here
         return null;
     }
 
@@ -291,9 +304,9 @@ class SmileDecoder
 
         $result = $this->decodeStringValue($length);
 
-        if ($isKey) {
+        if ($isKey && $this->context->hasSharedKeys()) {
             $this->context->addSharedKey($byte & 31, $result);
-        } else {
+        } elseif ($this->context->hasSharedValues()) {
             $this->context->addSharedValue($byte & 31, $result);
         }
 
@@ -342,8 +355,13 @@ class SmileDecoder
         return null; // TODO: Implement 7 bits encoding
     }
 
+    /** @throws UnexpectedValueException */
     private function writeLongSharedString(): string
     {
+        if (!$this->context->hasSharedValues()) {
+            throw new UnexpectedValueException('Trying to read a shared value but shared values are disabled.');
+        }
+
         // JS and Go seem a bit different on this one so we'll need to double check on this. Using Go for now.
         $sharedValueReference = (($this->context->getSpecificByte($this->context->getIndex()) & 3) << 8) | ($this->context->getSpecificByte($this->context->getIndex() + 1) & 255);
         $value = $this->context->getSharedValue($sharedValueReference);
@@ -360,8 +378,13 @@ class SmileDecoder
         return null;
     }
 
+    /** @throws UnexpectedValueException */
     private function writeShortSharedKey(): ?string
     {
+        if (!$this->context->hasSharedKeys()) {
+            throw new UnexpectedValueException('Trying to read a shared key but shared keys are disabled.');
+        }
+
         $searchedKey = $this->context->getSpecificByte($this->context->getIndex() - 1) - 64;
 
         if (\array_key_exists($searchedKey, $this->context->getSharedKeys())) {
@@ -385,7 +408,7 @@ class SmileDecoder
 
             if (($msb4 >= 0) && ($msb4 <= 7)) {
                 $result .= mb_chr($char);
-            } elseif (($msb4 >= 12) && ($msb4 <= 13)) {
+            } elseif ($msb4 === 12 || $msb4 === 13) {
                 $nextChar = $bytes[$i++];
                 $result .= mb_chr((($char & 31) << 6) | ($nextChar & 63));
             } else {
@@ -395,7 +418,10 @@ class SmileDecoder
             }
         }
 
-        $this->context->addSharedKey($byte & 31, $result);
+        if ($this->context->hasSharedKeys()) {
+            $this->context->addSharedKey($byte & 31, $result);
+        }
+
         $this->context->increaseIndex($length);
 
         return $result;

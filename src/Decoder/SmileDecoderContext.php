@@ -10,7 +10,7 @@ class SmileDecoderContext
     private array $bytesArray = [];
     private int $bytesArrayCount = 0;
 
-    private int $index = 0;
+    private int $index = 1;
 
     /** @var string[] */
     private array $sharedKeys = [];
@@ -18,10 +18,43 @@ class SmileDecoderContext
     /** @var string[] */
     private array $sharedValues = [];
 
+    private int $version;
+    private bool $sharedKeysOption;
+    private bool $sharedValuesOption;
+    private bool $rawBinaryOption;
+
     public function __construct(array $bytesArray)
     {
         $this->bytesArray = $bytesArray;
         $this->bytesArrayCount = \count($bytesArray);
+    }
+
+    public function setOptions(int $version, bool $sharedKeys, bool $sharedValues, bool $rawBinary): void
+    {
+        $this->version = $version;
+        $this->sharedKeysOption = $sharedKeys;
+        $this->sharedValuesOption = $sharedValues;
+        $this->rawBinaryOption = $rawBinary;
+    }
+
+    public function getVersion(): int
+    {
+        return $this->version;
+    }
+
+    public function hasSharedKeys(): bool
+    {
+        return $this->sharedKeysOption;
+    }
+
+    public function hasSharedValues(): bool
+    {
+        return $this->sharedValuesOption;
+    }
+
+    public function hasRawBinary(): bool
+    {
+        return $this->rawBinaryOption;
     }
 
     public function setFullyDecoded(): void
