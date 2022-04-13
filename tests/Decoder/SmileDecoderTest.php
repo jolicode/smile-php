@@ -40,19 +40,6 @@ class SmileDecoderTest extends TestCase
         yield ['numbers-int-64k'];
         yield ['test1'];
         yield ['test2'];
-        // yield ['unicode'];
-        // Not working for now :(
-        // yield [
-        //     'smile' => __DIR__ . '/../../tests/data/numbers-fp-4k.smile',
-        //     'json' => __DIR__ . '/../../tests/data/numbers-fp-4k.json',
-        // ];
-        // yield [
-        //     'smile' => __DIR__ . '/../../tests/data/numbers-fp-64k.smile',
-        //     'json' => __DIR__ . '/../../tests/data/numbers-fp-64k.json',
-        // ];
-        // yield [
-        //     'smile' => __DIR__ . '/../../tests/data/test1.smile',
-        //     'json' => __DIR__ . '/../../tests/data/test1.json',
-        // ];
+        yield ['db100.xml'];
     }
 }

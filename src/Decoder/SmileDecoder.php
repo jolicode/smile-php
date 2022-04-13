@@ -110,7 +110,7 @@ class SmileDecoder
             $byte < Bytes::THRESHOLD_LONG_UNICODE => new DecodingResult($this->writeLongASCII()),  // 224 > 227 are long ASCII.
             $byte < Bytes::THRESHOLD_7BITS => new DecodingResult($this->writeLongUnicode()), // 228 > 231 are long unicode.
             $byte < Bytes::THRESHOLD_LONG_SHARED_STRING => new DecodingResult($this->write7BitsEncoded()), // 232 > 235 is for 7 bits encoded values.
-            $byte < Bytes::THRESHOLD_HEADER_BIT_VERSION => new DecodingResult($this->writeLongSharedString()), // 235 > 239 is for long strings shared values.
+            $byte < Bytes::THRESHOLD_HEADER_BIT_VERSION => new DecodingResult($this->writeLongSharedString()), // 236 > 239 is for long strings shared values.
             $byte < Bytes::THRESHOLD_STRUCTURE_LITERALS => new DecodingResult(null, true), // 240 > 247 is reserved for future use.
             Bytes::LITERAL_ARRAY_START === $byte => new DecodingResult($this->decodeArray()), // 248 is array start
             Bytes::LITERAL_ARRAY_END === $byte => throw new UnexpectedValueException(sprintf('An end of array byte was found while decoding a value but it should be skipped. Found when index was %d.', $this->context->getIndex())), // 249 is array end
@@ -259,12 +259,7 @@ class SmileDecoder
             throw new UnexpectedValueException('Trying to read a shared value but shared values are disabled.');
         }
 
-        if (\array_key_exists($byte & 31, $this->context->getSharedValues())) {
-            return $this->context->getSharedValue($byte & 31);
-        }
-
-        // We probably want to throw an exception here
-        return null;
+        return $this->context->getSharedValue(($byte & 31) - 1);
     }
 
     private function writeSimpleLiteral(int $byte): mixed
@@ -304,9 +299,9 @@ class SmileDecoder
         $result = $this->decodeStringValue($length);
 
         if ($isKey && $this->context->hasSharedKeys()) {
-            $this->context->addSharedKey($byte & 31, $result);
+            $this->context->addSharedKey($result);
         } elseif ($this->context->hasSharedValues()) {
-            $this->context->addSharedValue($byte & 31, $result);
+            $this->context->addSharedValue($result);
         }
 
         return $result;
@@ -361,11 +356,13 @@ class SmileDecoder
             throw new UnexpectedValueException('Trying to read a shared value but shared values are disabled.');
         }
 
-        // JS and Go seem a bit different on this one so we'll need to double check on this. Using Go for now.
-        $sharedValueReference = (($this->context->getSpecificByte($this->context->getIndex()) & 3) << 8) | ($this->context->getSpecificByte($this->context->getIndex() + 1) & 255);
+        $firstByte = $this->context->getSpecificByte($this->context->getIndex() - 1);
+        $secondByte = $this->context->getSpecificByte($this->context->getIndex());
+
+        $sharedValueReference = (($firstByte & 3) << 8) | ($secondByte & 255);
         $value = $this->context->getSharedValue($sharedValueReference);
 
-        $this->context->increaseIndex(2);
+        $this->context->increaseIndex(1);
 
         return $value;
     }

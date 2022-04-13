@@ -106,9 +106,9 @@ class SmileDecoderContext
         return $this->sharedKeys[$key];
     }
 
-    public function addSharedKey(int $key, mixed $value): void
+    public function addSharedKey(string $value): void
     {
-        $this->sharedKeys[$key] = $value;
+        $this->sharedKeys[] = $value;
     }
 
     public function getSharedValues(): array
@@ -116,13 +116,13 @@ class SmileDecoderContext
         return $this->sharedValues;
     }
 
-    public function getSharedValue(int $key): mixed
+    public function getSharedValue(int $key): string
     {
         return $this->sharedValues[$key];
     }
 
-    public function addSharedValue(int $key, mixed $value): void
+    public function addSharedValue(string $value): void
     {
-        $this->sharedValues[$key] = $value;
+        $this->sharedValues[] = $value;
     }
 }
