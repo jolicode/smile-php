@@ -7,7 +7,6 @@
 namespace Jolicode\SmilePhp\Decoder;
 
 use Jolicode\SmilePhp\Enum\Bytes;
-use Jolicode\SmilePhp\Decoder\DecodingResult;
 use Jolicode\SmilePhp\Exception\UnexpectedValueException;
 
 class SmileDecoder
@@ -97,7 +96,7 @@ class SmileDecoder
     private function decodeValue(int $byte): DecodingResult
     {
         return match (true) {
-            $byte === Bytes::NULL_BYTE => new DecodingResult(null, true),
+            Bytes::NULL_BYTE === $byte => new DecodingResult(null, true),
             $byte < Bytes::THRESHOLD_SIMPLE_LITERALS => new DecodingResult($this->writeSharedString($byte)), // 1 > 31 values are string shared values.
             $byte < Bytes::THRESHOLD_INTEGERS => new DecodingResult($this->writeSimpleLiteral($byte)), // 32 > 35 are simple literals.
             $byte < Bytes::THRESHOLD_FLOATS => new DecodingResult($this->writeInteger($byte)), // 36 > 39 are integers.
@@ -113,13 +112,13 @@ class SmileDecoder
             $byte < Bytes::THRESHOLD_LONG_SHARED_STRING => new DecodingResult($this->write7BitsEncoded()), // 232 > 235 is for 7 bits encoded values.
             $byte < Bytes::THRESHOLD_HEADER_BIT_VERSION => new DecodingResult($this->writeLongSharedString()), // 235 > 239 is for long strings shared values.
             $byte < Bytes::THRESHOLD_STRUCTURE_LITERALS => new DecodingResult(null, true), // 240 > 247 is reserved for future use.
-            $byte === Bytes::LITERAL_ARRAY_START => new DecodingResult($this->decodeArray()), // 248 is array start
-            $byte === Bytes::LITERAL_ARRAY_END => throw new UnexpectedValueException(sprintf('An end of array byte was found while decoding a value but it should be skipped. Found when index was %d.', $this->context->getIndex())), // 249 is array end
-            $byte === Bytes::LITERAL_OBJECT_START => new DecodingResult($this->decodeObject()), // 250 is object start
-            $byte === Bytes::LITERAL_OBJECT_END => throw new UnexpectedValueException(sprintf('An end of object byte was found while decoding a value but it should be skipped. Found when index was %d.', $this->context->getIndex())), // 251 is object end
-            $byte === Bytes::MARKER_END_OF_STRING => throw new UnexpectedValueException(sprintf('An end of string byte was found while decoding a value. Found when index was %d.', $this->context->getIndex())), // 252 is end of string marker
-            $byte === Bytes::RAW_BINARY => new DecodingResult(null, true), // TODO: implement Raw Binary
-            $byte === Bytes::MARKER_END_OF_CONTENT => new DecodingResult($this->endBodyDecoding(), true), // 254 is end of content marker
+            Bytes::LITERAL_ARRAY_START === $byte => new DecodingResult($this->decodeArray()), // 248 is array start
+            Bytes::LITERAL_ARRAY_END === $byte => throw new UnexpectedValueException(sprintf('An end of array byte was found while decoding a value but it should be skipped. Found when index was %d.', $this->context->getIndex())), // 249 is array end
+            Bytes::LITERAL_OBJECT_START === $byte => new DecodingResult($this->decodeObject()), // 250 is object start
+            Bytes::LITERAL_OBJECT_END === $byte => throw new UnexpectedValueException(sprintf('An end of object byte was found while decoding a value but it should be skipped. Found when index was %d.', $this->context->getIndex())), // 251 is object end
+            Bytes::MARKER_END_OF_STRING === $byte => throw new UnexpectedValueException(sprintf('An end of string byte was found while decoding a value. Found when index was %d.', $this->context->getIndex())), // 252 is end of string marker
+            Bytes::RAW_BINARY === $byte => new DecodingResult(null, true), // TODO: implement Raw Binary
+            Bytes::MARKER_END_OF_CONTENT === $byte => new DecodingResult($this->endBodyDecoding(), true), // 254 is end of content marker
             default => throw new UnexpectedValueException(sprintf('Given byte does\'t exist. Given byte has value %d but decimal bytes range from 0 to 254. Found when index was %d.', $byte, $this->context->getIndex()))
         };
     }
@@ -128,18 +127,18 @@ class SmileDecoder
     {
         return match (true) {
             $byte < Bytes::THRESHOLD_SIMPLE_LITERALS => new DecodingResult(null, true), // 0 > 31 are reserved
-            $byte === Bytes::LITERAL_EMPTY_STRING => new DecodingResult('""'),
+            Bytes::LITERAL_EMPTY_STRING === $byte => new DecodingResult('""'),
             $byte < Bytes::THRESHOLD_LONG_SHARED_KEY => new DecodingResult(null, true), // 33 > 37 are reserved
             $byte < Bytes::KEY_LONG_KEY_NAME => new DecodingResult(null, true), // TODO: implement long shared key references
-            $byte === Bytes::KEY_LONG_KEY_NAME => new DecodingResult(null, true), // TODO: implement long key name
+            Bytes::KEY_LONG_KEY_NAME === $byte => new DecodingResult(null, true), // TODO: implement long key name
             $byte < Bytes::KEY_FORBIDDEN_KEY => new DecodingResult(null, true), // 53 > 57 are reserved
-            $byte === Bytes::KEY_FORBIDDEN_KEY => throw new UnexpectedValueException(sprintf('Byte of decimal value 58 was found while decoding a key but this byte is forbidden for keys. Found when index was %d.', $this->context->getIndex())),
+            Bytes::KEY_FORBIDDEN_KEY === $byte => throw new UnexpectedValueException(sprintf('Byte of decimal value 58 was found while decoding a key but this byte is forbidden for keys. Found when index was %d.', $this->context->getIndex())),
             $byte < Bytes::KEY_SHORT_SHARED_REFERENCE => new DecodingResult(null, true), // 59 > 63 are reserved
             $byte < Bytes::KEY_SHORT_ASCII => new DecodingResult($this->writeShortSharedKey()), // 64 > 127 are short shared keys
             $byte < Bytes::KEY_SHORT_UNICODE => new DecodingResult($this->writeAsciiOrUnicode($byte, 1, true)), // 128 > 191 are short ASCII
             $byte < Bytes::LITERAL_ARRAY_START => new DecodingResult($this->writeShortUnicodeKey($byte)), // 192 > 247 are short Unicodes
             $byte < Bytes::LITERAL_OBJECT_END => new DecodingResult(null, true), // 248 > 250 are reserved
-            $byte === Bytes::LITERAL_OBJECT_END => throw new UnexpectedValueException(sprintf('An end of object byte was found while decoding a key but it should be skipped. Found when index was %d.', $this->context->getIndex())),
+            Bytes::LITERAL_OBJECT_END === $byte => throw new UnexpectedValueException(sprintf('An end of object byte was found while decoding a key but it should be skipped. Found when index was %d.', $this->context->getIndex())),
             $byte < 255 => new DecodingResult(null, true), // We do nothing for 252 > 254
             default => throw new UnexpectedValueException(sprintf('Given byte does\'t exist. Given byte has value %d but decimal bytes range from 0 to 254. Found when index was %d.', $byte, $this->context->getIndex()))
         };
@@ -408,7 +407,7 @@ class SmileDecoder
 
             if (($msb4 >= 0) && ($msb4 <= 7)) {
                 $result .= mb_chr($char);
-            } elseif ($msb4 === 12 || $msb4 === 13) {
+            } elseif (12 === $msb4 || 13 === $msb4) {
                 $nextChar = $bytes[$i++];
                 $result .= mb_chr((($char & 31) << 6) | ($nextChar & 63));
             } else {
