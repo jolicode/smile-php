@@ -1,0 +1,30 @@
+name: CI
+
+on:
+    push:
+        branches: [ main ]
+    pull_request:
+
+jobs:
+    ci:
+        runs-on: ubuntu-latest
+
+        steps:
+        - uses: actions/checkout@v2
+
+        - name: Setup PHP
+          uses: shivammathur/setup-php@2.13.0
+          with:
+            php-version: '8.1'
+
+        - name: Validate composer.json and composer.lock
+          run: composer validate --strict
+
+        - name: Install dependencies
+          run: composer install --prefer-dist --no-progress
+
+        - name: Check CS
+          run: vendor/bin/php-cs-fixer fix src --dry-run
+
+        - name: Run tests
+          run: composer tests
