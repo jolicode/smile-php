@@ -102,7 +102,7 @@ class SmileDecoder
             $byte < Bytes::THRESHOLD_FLOATS => new DecodingResult($this->writeInteger($byte)), // 36 > 39 are integers.
             $byte < Bytes::THRESHOLD_RESERVED => new DecodingResult($this->writeFloat($byte)), // 40 > 42 are floats.
             $byte < Bytes::THRESHOLD_TINY_ASCII => new DecodingResult(null, true), // 43 > 63 is reserved for future use.
-            $byte < Bytes::THRESHOLD_SMALL_ASCII => new DecodingResult($this->writeAsciiOrUnicode($byte, 1)), // 64 > 96 are tiny ASCII.
+            $byte < Bytes::THRESHOLD_SMALL_ASCII => new DecodingResult($this->writeAsciiOrUnicode($byte, 1)), // 64 > 95 are tiny ASCII.
             $byte < Bytes::THRESHOLD_TINY_UNICODE => new DecodingResult($this->writeAsciiOrUnicode($byte, 33)), // 97 > 127 are small ASCII.
             $byte < Bytes::THRESHOLD_SMALL_UNICODE => new DecodingResult($this->writeAsciiOrUnicode($byte, 2)), // 128 > 159 are tiny Unicode.
             $byte < Bytes::THRESHOLD_SMALL_INT => new DecodingResult($this->writeAsciiOrUnicode($byte, 34)), // 160 > 191 are small Unicode.
@@ -127,14 +127,14 @@ class SmileDecoder
     {
         return match (true) {
             $byte < Bytes::THRESHOLD_SIMPLE_LITERALS => new DecodingResult(null, true), // 0 > 31 are reserved
-            Bytes::LITERAL_EMPTY_STRING === $byte => new DecodingResult('""'),
+            Bytes::LITERAL_EMPTY_STRING === $byte => new DecodingResult(''),
             $byte < Bytes::THRESHOLD_LONG_SHARED_KEY => new DecodingResult(null, true), // 33 > 37 are reserved
-            $byte < Bytes::KEY_LONG_KEY_NAME => new DecodingResult(null, true), // TODO: implement long shared key references
-            Bytes::KEY_LONG_KEY_NAME === $byte => new DecodingResult(null, true), // TODO: implement long key name
+            // TODO: Long Key Name don't seem to exist. Update on the enum needed.
+            $byte < Bytes::KEY_LONG_KEY_NAME => new DecodingResult($this->writeLongSharedKey($byte)), // 48 > 51 are long shared keys
             $byte < Bytes::KEY_FORBIDDEN_KEY => new DecodingResult(null, true), // 53 > 57 are reserved
             Bytes::KEY_FORBIDDEN_KEY === $byte => throw new UnexpectedValueException(sprintf('Byte of decimal value 58 was found while decoding a key but this byte is forbidden for keys. Found when index was %d.', $this->context->getIndex())),
             $byte < Bytes::KEY_SHORT_SHARED_REFERENCE => new DecodingResult(null, true), // 59 > 63 are reserved
-            $byte < Bytes::KEY_SHORT_ASCII => new DecodingResult($this->writeShortSharedKey()), // 64 > 127 are short shared keys
+            $byte < Bytes::KEY_SHORT_ASCII => new DecodingResult($this->writeShortSharedKey($byte)), // 64 > 127 are short shared keys
             $byte < Bytes::KEY_SHORT_UNICODE => new DecodingResult($this->writeAsciiOrUnicode($byte, 1, true)), // 128 > 191 are short ASCII
             $byte < Bytes::LITERAL_ARRAY_START => new DecodingResult($this->writeShortUnicodeKey($byte)), // 192 > 247 are short Unicodes
             $byte < Bytes::LITERAL_OBJECT_END => new DecodingResult(null, true), // 248 > 250 are reserved
@@ -249,7 +249,7 @@ class SmileDecoder
 
         $this->context->increaseIndex($length);
 
-        return $result;
+        return iconv('UTF-8', 'ISO-8859-1', $result);
     }
 
     /** @throws UnexpectedValueException */
@@ -265,7 +265,7 @@ class SmileDecoder
     private function writeSimpleLiteral(int $byte): mixed
     {
         return match ($byte) {
-            Bytes::LITERAL_EMPTY_STRING => '""',
+            Bytes::LITERAL_EMPTY_STRING => '',
             Bytes::LITERAL_NULL => null,
             Bytes::LITERAL_FALSE => false,
             Bytes::LITERAL_TRUE => true
@@ -274,13 +274,11 @@ class SmileDecoder
 
     private function writeInteger(int $byte): int
     {
-        $result = match ($byte) {
+        return match ($byte) {
             Bytes::INT_32 => $this->zigZagDecode($this->decodeInt()),
             Bytes::INT_64 => $this->zigZagDecode($this->decodeInt()),
             Bytes::INT_BIG => $this->decodeBigInt(),
         };
-
-        return $result;
     }
 
     private function writeFloat(int $byte): string
@@ -316,10 +314,9 @@ class SmileDecoder
 
     private function writeLongASCII(): string
     {
-        $stringLength = array_search(Bytes::MARKER_END_OF_STRING, \array_slice($this->context->getBytesArray(), $this->context->getIndex() + 1));
-        $string = implode('', \array_slice($this->context->getBytesArray(), $this->context->getIndex() + 1, $stringLength));
-
-        $this->context->increaseIndex($stringLength + 1);
+        $stringLength = array_search(Bytes::MARKER_END_OF_STRING, \array_slice($this->context->getBytesArray(), $this->context->getIndex()));
+        $string = $this->decodeStringValue($stringLength + 1);
+        $this->context->increaseIndex(1);
 
         return $string;
     }
@@ -329,10 +326,9 @@ class SmileDecoder
         // /!\ WARNING: The Go library does the same thing for long ASCII and for long Unicode. /!\
         // Because it's the most easy we'll do this as well but further testing needed since it's the only one to do this.
         // If we keep it we'll merge this method with WriteLongASCII().
-        $stringLength = array_search(Bytes::MARKER_END_OF_STRING, \array_slice($this->context->getBytesArray(), $this->context->getIndex() + 1));
-        $string = implode('', \array_slice($this->context->getBytesArray(), $this->context->getIndex() + 1, $stringLength));
-
-        $this->context->increaseIndex($stringLength + 1);
+        $stringLength = array_search(Bytes::MARKER_END_OF_STRING, \array_slice($this->context->getBytesArray(), $this->context->getIndex()));
+        $string = $this->decodeStringValue($stringLength + 1);
+        $this->context->increaseIndex(1);
 
         return $string;
     }
@@ -375,23 +371,30 @@ class SmileDecoder
     }
 
     /** @throws UnexpectedValueException */
-    private function writeShortSharedKey(): ?string
+    private function writeLongSharedKey(int $byte): string
     {
         if (!$this->context->hasSharedKeys()) {
             throw new UnexpectedValueException('Trying to read a shared key but shared keys are disabled.');
         }
 
-        $searchedKey = $this->context->getSpecificByte($this->context->getIndex() - 1) - 64;
+        $searchedKey = (($byte & 3) << 8) | $this->getNextByte();
 
-        if (\array_key_exists($searchedKey, $this->context->getSharedKeys())) {
-            return $this->context->getSharedKey($searchedKey);
+        return $this->context->getSharedKey($searchedKey);
+    }
+
+    /** @throws UnexpectedValueException */
+    private function writeShortSharedKey(int $byte): string
+    {
+        if (!$this->context->hasSharedKeys()) {
+            throw new UnexpectedValueException('Trying to read a shared key but shared keys are disabled.');
         }
 
-        return null;
+        return $this->context->getSharedKey($byte & 63);
     }
 
     private function writeShortUnicodeKey(int $byte): string
     {
+        // TODO: This method is suspect. It works as expected but we probably could just use the `decodeStringValue()` method, like we do for long Unicode.
         $length = ($byte & 31) + 2;
 
         $result = '';

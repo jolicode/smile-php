@@ -108,6 +108,10 @@ class SmileDecoderContext
 
     public function addSharedKey(string $value): void
     {
+        if (1024 === \count($this->getSharedKeys())) {
+            $this->sharedKeys = [];
+        }
+
         $this->sharedKeys[] = $value;
     }
 
@@ -123,6 +127,10 @@ class SmileDecoderContext
 
     public function addSharedValue(string $value): void
     {
+        if (1024 === \count($this->getSharedValues())) {
+            $this->sharedValues = [];
+        }
+
         $this->sharedValues[] = $value;
     }
 }

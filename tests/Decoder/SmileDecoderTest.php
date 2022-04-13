@@ -19,7 +19,7 @@ class SmileDecoderTest extends TestCase
     }
 
     /**
-     * @dataProvider provideIntegers
+     * @dataProvider provideFiles
      *
      * @covers SmileDecoder::decode
      * */
@@ -34,12 +34,21 @@ class SmileDecoderTest extends TestCase
         $this->assertEquals(json_decode($json), $results);
     }
 
-    public function provideIntegers()
+    public function provideFiles()
     {
         yield ['numbers-int-4k'];
         yield ['numbers-int-64k'];
         yield ['test1'];
         yield ['test2'];
         yield ['db100.xml'];
+        yield ['json-org-sample1'];
+        yield ['json-org-sample2'];
+        yield ['json-org-sample3'];
+        yield ['json-org-sample4'];
+        yield ['json-org-sample5'];
+        yield ['map-spain.xml'];
+        yield ['ns-invoice100.xml'];
+        yield ['ns-soap.xml'];
+        yield ['unicode'];
     }
 }
