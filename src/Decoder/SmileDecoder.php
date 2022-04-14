@@ -205,24 +205,19 @@ class SmileDecoder
         return bindec($binaryString);
     }
 
-    // This method uses the BCMath extension, which returns a string, because the numbers it deals with may be too large for PHP.
-    // See https://www.php.net/manual/en/language.types.integer.php#language.types.integer.overflow
     private function decodeFloat(int $bytesAmount): string
     {
         $result = $this->getNextByte();
 
-        foreach (range(1, $bytesAmount) as $index) {
+        for ($i = 0; $i < $bytesAmount; ++$i) {
             $byte = $this->getNextByte();
 
-            // These two lines actually simply do `$result = ($result << 7) + $byte` but compatible with very large numbers
-            $pow = bcpow(2, 7);
-            $result = bcadd(bcmul($result, $pow), $byte);
+            $result = ($result << 7) + $byte;
         }
-        $unpack = unpack('d*', $result);
-        // Not working for now :(.
-        dd($unpack);
 
-        return $result;
+        $unpack = unpack('d', pack('Q', $result));
+
+        return $unpack[1];
     }
 
     private function decodeBigDecimal(): int

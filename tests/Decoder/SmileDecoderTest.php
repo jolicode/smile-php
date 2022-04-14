@@ -50,5 +50,7 @@ class SmileDecoderTest extends TestCase
         yield ['ns-invoice100.xml'];
         yield ['ns-soap.xml'];
         yield ['unicode'];
+        yield ['numbers-fp-4k'];
+        yield ['numbers-fp-64k'];
     }
 }
