@@ -1,7 +1,6 @@
 /.php-cs-fixer.cache
 /.phpunit.cache/
 /composer.lock
+/files/decoder/input.smile
+/files/decoder/output.json
 /vendor/
-
-/files/decode/input.smile
-/files/decode/output.json
