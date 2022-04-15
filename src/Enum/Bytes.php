@@ -45,7 +45,7 @@ enum Bytes: int
     public const BIG_DECIMAL = 42;
 
     // KEYS
-    public const KEY_LONG_KEY_NAME = 52;
+    public const KEY_RESERVED = 52;
     public const KEY_FORBIDDEN_KEY = 58;
     public const KEY_SHORT_SHARED_REFERENCE = 64;
     public const KEY_SHORT_ASCII = 128;

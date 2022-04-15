@@ -2,6 +2,3 @@
 /.phpunit.cache/
 /composer.lock
 /vendor/
-
-/files/decode/input.smile
-/files/decode/output.json

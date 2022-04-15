@@ -7,23 +7,25 @@
 namespace Jolicode\SmilePhp\Command;
 
 use Jolicode\SmilePhp\Decoder\SmileDecoder;
+use Jolicode\SmilePhp\Exception\UnexpectedValueException;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
-use UnexpectedValueException;
 
 #[AsCommand(
     name: 'smile-decode',
-    description: 'Decodes a smile binary file as json. You may directly decode a smile string as well.'
+    description: 'Decodes a smile binary file. You may directly decode a Smile binary string as well.'
 )]
 class DecodeCommand extends Command
 {
     protected function configure()
     {
-        $this->addArgument('smile-data', InputArgument::OPTIONAL, 'The data you want to decode, you can use a file or a string. Defaults to files/decode/input.smile', __DIR__ . '/../../files/decode/input.smile');
+        $this->addArgument('smile-data', InputArgument::REQUIRED, 'The data you want to decode. You may use a file path, a SMILE string or "-" to read from STDIN.');
+        $this->addOption('pretty', '', InputOption::VALUE_NONE, 'Should the result be pretty printed.');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output)
@@ -37,18 +39,20 @@ class DecodeCommand extends Command
             $data = file_get_contents($data);
         }
 
+        if ('-' === $data) {
+            $data = file_get_contents('php://stdin');
+        }
+
         try {
-            file_put_contents(
-                __DIR__ . '/../../files/decode/output.json',
-                json_encode($decoder->decode($data), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)
-            );
+            $pretty = $input->getOption('pretty');
+            $flags = $pretty ? \JSON_PRETTY_PRINT | \JSON_UNESCAPED_UNICODE : \JSON_UNESCAPED_UNICODE;
+            $results = json_encode($decoder->decode($data), $flags);
+            $style->writeln($results);
         } catch (UnexpectedValueException $exception) {
-            $style->error('An error occured while decoding the smile data. Message : ' . $exception->getMessage());
+            $style->getErrorStyle()->error('An error occured while decoding the Smile data. Message : ' . $exception->getMessage());
 
             return Command::FAILURE;
         }
-
-        $style->success('Smile file successfuly decoded as json. Result written at files/decode/output.json');
 
         return Command::SUCCESS;
     }
