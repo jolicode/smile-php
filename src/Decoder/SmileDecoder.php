@@ -18,11 +18,15 @@ class SmileDecoder
         $this->context = new SmileDecoderContext(unpack('C*', $smileData));
         $this->decodeHead();
 
-        return match ($this->getNextByte()) {
-            Bytes::LITERAL_ARRAY_START => $this->decodeArray(),
-            Bytes::LITERAL_OBJECT_START => $this->decodeObject(),
-            default => throw new UnexpectedValueException('The smile file seems invalid since it doesn\'t start with an array or an object.'),
-        };
+        try {
+            return match ($this->getNextByte()) {
+                Bytes::LITERAL_ARRAY_START => $this->decodeArray(),
+                Bytes::LITERAL_OBJECT_START => $this->decodeObject(),
+                default => throw new UnexpectedValueException('The smile file seems invalid since it doesn\'t start with an array or an object.'),
+            };
+        } finally {
+            unset($this->context);
+        }
     }
 
     private function decodeHead(): void
@@ -102,7 +106,7 @@ class SmileDecoder
             $byte < Bytes::THRESHOLD_FLOATS => new DecodingResult($this->writeInteger($byte)), // 36 > 39 are integers.
             $byte < Bytes::THRESHOLD_RESERVED => new DecodingResult($this->writeFloat($byte)), // 40 > 42 are floats.
             $byte < Bytes::THRESHOLD_TINY_ASCII => new DecodingResult(null, true), // 43 > 63 is reserved for future use.
-            $byte < Bytes::THRESHOLD_SMALL_ASCII => new DecodingResult($this->writeAsciiOrUnicode($byte, 1)), // 64 > 96 are tiny ASCII.
+            $byte < Bytes::THRESHOLD_SMALL_ASCII => new DecodingResult($this->writeAsciiOrUnicode($byte, 1)), // 64 > 95 are tiny ASCII.
             $byte < Bytes::THRESHOLD_TINY_UNICODE => new DecodingResult($this->writeAsciiOrUnicode($byte, 33)), // 97 > 127 are small ASCII.
             $byte < Bytes::THRESHOLD_SMALL_UNICODE => new DecodingResult($this->writeAsciiOrUnicode($byte, 2)), // 128 > 159 are tiny Unicode.
             $byte < Bytes::THRESHOLD_SMALL_INT => new DecodingResult($this->writeAsciiOrUnicode($byte, 34)), // 160 > 191 are small Unicode.
@@ -110,7 +114,7 @@ class SmileDecoder
             $byte < Bytes::THRESHOLD_LONG_UNICODE => new DecodingResult($this->writeLongASCII()),  // 224 > 227 are long ASCII.
             $byte < Bytes::THRESHOLD_7BITS => new DecodingResult($this->writeLongUnicode()), // 228 > 231 are long unicode.
             $byte < Bytes::THRESHOLD_LONG_SHARED_STRING => new DecodingResult($this->write7BitsEncoded()), // 232 > 235 is for 7 bits encoded values.
-            $byte < Bytes::THRESHOLD_HEADER_BIT_VERSION => new DecodingResult($this->writeLongSharedString()), // 235 > 239 is for long strings shared values.
+            $byte < Bytes::THRESHOLD_HEADER_BIT_VERSION => new DecodingResult($this->writeLongSharedString()), // 236 > 239 is for long strings shared values.
             $byte < Bytes::THRESHOLD_STRUCTURE_LITERALS => new DecodingResult(null, true), // 240 > 247 is reserved for future use.
             Bytes::LITERAL_ARRAY_START === $byte => new DecodingResult($this->decodeArray()), // 248 is array start
             Bytes::LITERAL_ARRAY_END === $byte => throw new UnexpectedValueException(sprintf('An end of array byte was found while decoding a value but it should be skipped. Found when index was %d.', $this->context->getIndex())), // 249 is array end
@@ -127,14 +131,14 @@ class SmileDecoder
     {
         return match (true) {
             $byte < Bytes::THRESHOLD_SIMPLE_LITERALS => new DecodingResult(null, true), // 0 > 31 are reserved
-            Bytes::LITERAL_EMPTY_STRING === $byte => new DecodingResult('""'),
+            Bytes::LITERAL_EMPTY_STRING === $byte => new DecodingResult(''),
             $byte < Bytes::THRESHOLD_LONG_SHARED_KEY => new DecodingResult(null, true), // 33 > 37 are reserved
-            $byte < Bytes::KEY_LONG_KEY_NAME => new DecodingResult(null, true), // TODO: implement long shared key references
-            Bytes::KEY_LONG_KEY_NAME === $byte => new DecodingResult(null, true), // TODO: implement long key name
+            // TODO: Long Key Name don't seem to exist. Update on the enum needed.
+            $byte < Bytes::KEY_LONG_KEY_NAME => new DecodingResult($this->writeLongSharedKey($byte)), // 48 > 51 are long shared keys
             $byte < Bytes::KEY_FORBIDDEN_KEY => new DecodingResult(null, true), // 53 > 57 are reserved
             Bytes::KEY_FORBIDDEN_KEY === $byte => throw new UnexpectedValueException(sprintf('Byte of decimal value 58 was found while decoding a key but this byte is forbidden for keys. Found when index was %d.', $this->context->getIndex())),
             $byte < Bytes::KEY_SHORT_SHARED_REFERENCE => new DecodingResult(null, true), // 59 > 63 are reserved
-            $byte < Bytes::KEY_SHORT_ASCII => new DecodingResult($this->writeShortSharedKey()), // 64 > 127 are short shared keys
+            $byte < Bytes::KEY_SHORT_ASCII => new DecodingResult($this->writeShortSharedKey($byte)), // 64 > 127 are short shared keys
             $byte < Bytes::KEY_SHORT_UNICODE => new DecodingResult($this->writeAsciiOrUnicode($byte, 1, true)), // 128 > 191 are short ASCII
             $byte < Bytes::LITERAL_ARRAY_START => new DecodingResult($this->writeShortUnicodeKey($byte)), // 192 > 247 are short Unicodes
             $byte < Bytes::LITERAL_OBJECT_END => new DecodingResult(null, true), // 248 > 250 are reserved
@@ -183,18 +187,19 @@ class SmileDecoder
         return $result;
     }
 
-    private function decodeBigInt(): int
+    private function decodeBigInt(): float
     {
         $int = $this->decodeInt();
 
-        $bytesAmount = round((($int * 8) / 7));
+        $bytesAmount = (int) ceil(((float) $int * 8) / 7);
 
         $binaryString = '';
 
-        foreach (range(1, $bytesAmount) as $index) {
-            $binaryString .= sprintf('%07b', $this->context->getSpecificByte($this->context->getIndex() + $index));
+        for ($i = 0; $i < $bytesAmount; ++$i) {
+            $byte = $this->context->getSpecificByte($this->context->getIndex() + $i);
+            $binaryString .= sprintf('%07b', $byte);
 
-            if ($index === $bytesAmount - 1) {
+            if ($i === $bytesAmount - 1) {
                 $trailing = \strlen($binaryString) % 8;
                 $binaryString = substr($binaryString, 0, \strlen($binaryString) - $trailing);
             }
@@ -205,24 +210,19 @@ class SmileDecoder
         return bindec($binaryString);
     }
 
-    // This method uses the BCMath extension, which returns a string, because the numbers it deals with may be too large for PHP.
-    // See https://www.php.net/manual/en/language.types.integer.php#language.types.integer.overflow
     private function decodeFloat(int $bytesAmount): string
     {
         $result = $this->getNextByte();
 
-        foreach (range(1, $bytesAmount) as $index) {
+        for ($i = 0; $i < $bytesAmount; ++$i) {
             $byte = $this->getNextByte();
 
-            // These two lines actually simply do `$result = ($result << 7) + $byte` but compatible with very large numbers
-            $pow = bcpow(2, 7);
-            $result = bcadd(bcmul($result, $pow), $byte);
+            $result = ($result << 7) + $byte;
         }
-        $unpack = unpack('d*', $result);
-        // Not working for now :(.
-        dd($unpack);
 
-        return $result;
+        $unpack = unpack('d', pack('Q', $result));
+
+        return $unpack[1];
     }
 
     private function decodeBigDecimal(): int
@@ -249,7 +249,7 @@ class SmileDecoder
 
         $this->context->increaseIndex($length);
 
-        return $result;
+        return iconv('UTF-8', 'ISO-8859-1', $result);
     }
 
     /** @throws UnexpectedValueException */
@@ -259,33 +259,26 @@ class SmileDecoder
             throw new UnexpectedValueException('Trying to read a shared value but shared values are disabled.');
         }
 
-        if (\array_key_exists($byte & 31, $this->context->getSharedValues())) {
-            return $this->context->getSharedValue($byte & 31);
-        }
-
-        // We probably want to throw an exception here
-        return null;
+        return $this->context->getSharedValue(($byte & 31) - 1);
     }
 
     private function writeSimpleLiteral(int $byte): mixed
     {
         return match ($byte) {
-            Bytes::LITERAL_EMPTY_STRING => '""',
+            Bytes::LITERAL_EMPTY_STRING => '',
             Bytes::LITERAL_NULL => null,
             Bytes::LITERAL_FALSE => false,
             Bytes::LITERAL_TRUE => true
         };
     }
 
-    private function writeInteger(int $byte): int
+    private function writeInteger(int $byte): int|float
     {
-        $result = match ($byte) {
+        return match ($byte) {
             Bytes::INT_32 => $this->zigZagDecode($this->decodeInt()),
             Bytes::INT_64 => $this->zigZagDecode($this->decodeInt()),
             Bytes::INT_BIG => $this->decodeBigInt(),
         };
-
-        return $result;
     }
 
     private function writeFloat(int $byte): string
@@ -304,9 +297,9 @@ class SmileDecoder
         $result = $this->decodeStringValue($length);
 
         if ($isKey && $this->context->hasSharedKeys()) {
-            $this->context->addSharedKey($byte & 31, $result);
+            $this->context->addSharedKey($result);
         } elseif ($this->context->hasSharedValues()) {
-            $this->context->addSharedValue($byte & 31, $result);
+            $this->context->addSharedValue($result);
         }
 
         return $result;
@@ -321,10 +314,9 @@ class SmileDecoder
 
     private function writeLongASCII(): string
     {
-        $stringLength = array_search(Bytes::MARKER_END_OF_STRING, \array_slice($this->context->getBytesArray(), $this->context->getIndex() + 1));
-        $string = implode('', \array_slice($this->context->getBytesArray(), $this->context->getIndex() + 1, $stringLength));
-
-        $this->context->increaseIndex($stringLength + 1);
+        $stringLength = array_search(Bytes::MARKER_END_OF_STRING, \array_slice($this->context->getBytesArray(), $this->context->getIndex()));
+        $string = $this->decodeStringValue($stringLength + 1);
+        $this->context->increaseIndex(1);
 
         return $string;
     }
@@ -334,10 +326,9 @@ class SmileDecoder
         // /!\ WARNING: The Go library does the same thing for long ASCII and for long Unicode. /!\
         // Because it's the most easy we'll do this as well but further testing needed since it's the only one to do this.
         // If we keep it we'll merge this method with WriteLongASCII().
-        $stringLength = array_search(Bytes::MARKER_END_OF_STRING, \array_slice($this->context->getBytesArray(), $this->context->getIndex() + 1));
-        $string = implode('', \array_slice($this->context->getBytesArray(), $this->context->getIndex() + 1, $stringLength));
-
-        $this->context->increaseIndex($stringLength + 1);
+        $stringLength = array_search(Bytes::MARKER_END_OF_STRING, \array_slice($this->context->getBytesArray(), $this->context->getIndex()));
+        $string = $this->decodeStringValue($stringLength + 1);
+        $this->context->increaseIndex(1);
 
         return $string;
     }
@@ -361,40 +352,47 @@ class SmileDecoder
             throw new UnexpectedValueException('Trying to read a shared value but shared values are disabled.');
         }
 
-        // JS and Go seem a bit different on this one so we'll need to double check on this. Using Go for now.
-        $sharedValueReference = (($this->context->getSpecificByte($this->context->getIndex()) & 3) << 8) | ($this->context->getSpecificByte($this->context->getIndex() + 1) & 255);
+        $firstByte = $this->context->getSpecificByte($this->context->getIndex() - 1);
+        $secondByte = $this->context->getSpecificByte($this->context->getIndex());
+
+        $sharedValueReference = (($firstByte & 3) << 8) | ($secondByte & 255);
         $value = $this->context->getSharedValue($sharedValueReference);
 
-        $this->context->increaseIndex(2);
+        $this->context->increaseIndex(1);
 
         return $value;
     }
 
-    private function endBodyDecoding()
+    private function endBodyDecoding(): void
     {
         $this->context->setFullyDecoded();
-
-        return null;
     }
 
     /** @throws UnexpectedValueException */
-    private function writeShortSharedKey(): ?string
+    private function writeLongSharedKey(int $byte): string
     {
         if (!$this->context->hasSharedKeys()) {
             throw new UnexpectedValueException('Trying to read a shared key but shared keys are disabled.');
         }
 
-        $searchedKey = $this->context->getSpecificByte($this->context->getIndex() - 1) - 64;
+        $searchedKey = (($byte & 3) << 8) | $this->getNextByte();
 
-        if (\array_key_exists($searchedKey, $this->context->getSharedKeys())) {
-            return $this->context->getSharedKey($searchedKey);
+        return $this->context->getSharedKey($searchedKey);
+    }
+
+    /** @throws UnexpectedValueException */
+    private function writeShortSharedKey(int $byte): string
+    {
+        if (!$this->context->hasSharedKeys()) {
+            throw new UnexpectedValueException('Trying to read a shared key but shared keys are disabled.');
         }
 
-        return null;
+        return $this->context->getSharedKey($byte & 63);
     }
 
     private function writeShortUnicodeKey(int $byte): string
     {
+        // TODO: This method is suspect. It works as expected but we probably could just use the `decodeStringValue()` method, like we do for long Unicode.
         $length = ($byte & 31) + 2;
 
         $result = '';

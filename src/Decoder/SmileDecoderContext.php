@@ -8,12 +8,16 @@ namespace Jolicode\SmilePhp\Decoder;
 
 class SmileDecoderContext
 {
-    private bool $isFullyDecoded = false;
-
     /** @var int[] */
-    private array $bytesArray = [];
-    private int $bytesArrayCount = 0;
+    private readonly array $bytesArray;
+    private readonly int $bytesArrayCount;
 
+    private readonly int $version;
+    private readonly bool $sharedKeysOption;
+    private readonly bool $sharedValuesOption;
+    private readonly bool $rawBinaryOption;
+
+    private bool $isFullyDecoded = false;
     private int $index = 1;
 
     /** @var string[] */
@@ -21,11 +25,6 @@ class SmileDecoderContext
 
     /** @var string[] */
     private array $sharedValues = [];
-
-    private int $version;
-    private bool $sharedKeysOption;
-    private bool $sharedValuesOption;
-    private bool $rawBinaryOption;
 
     public function __construct(array $bytesArray)
     {
@@ -106,9 +105,13 @@ class SmileDecoderContext
         return $this->sharedKeys[$key];
     }
 
-    public function addSharedKey(int $key, mixed $value): void
+    public function addSharedKey(string $value): void
     {
-        $this->sharedKeys[$key] = $value;
+        if (1024 === \count($this->getSharedKeys())) {
+            $this->sharedKeys = [];
+        }
+
+        $this->sharedKeys[] = $value;
     }
 
     public function getSharedValues(): array
@@ -116,13 +119,17 @@ class SmileDecoderContext
         return $this->sharedValues;
     }
 
-    public function getSharedValue(int $key): mixed
+    public function getSharedValue(int $key): string
     {
         return $this->sharedValues[$key];
     }
 
-    public function addSharedValue(int $key, mixed $value): void
+    public function addSharedValue(string $value): void
     {
-        $this->sharedValues[$key] = $value;
+        if (1024 === \count($this->getSharedValues())) {
+            $this->sharedValues = [];
+        }
+
+        $this->sharedValues[] = $value;
     }
 }
