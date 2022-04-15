@@ -52,5 +52,6 @@ class SmileDecoderTest extends TestCase
         yield ['unicode'];
         yield ['numbers-fp-4k'];
         yield ['numbers-fp-64k'];
+        yield ['big-integer'];
     }
 }

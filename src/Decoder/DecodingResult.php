@@ -8,12 +8,9 @@ namespace Jolicode\SmilePhp\Decoder;
 
 class DecodingResult
 {
-    public mixed $data;
-    public bool $shouldBeSkipped;
-
-    public function __construct(mixed $data, bool $shouldBeSkipped = false)
-    {
-        $this->data = $data;
-        $this->shouldBeSkipped = $shouldBeSkipped;
+    public function __construct(
+        public readonly mixed $data,
+        public readonly bool $shouldBeSkipped = false
+    ) {
     }
 }

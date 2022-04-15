@@ -8,12 +8,16 @@ namespace Jolicode\SmilePhp\Decoder;
 
 class SmileDecoderContext
 {
-    private bool $isFullyDecoded = false;
-
     /** @var int[] */
-    private array $bytesArray = [];
-    private int $bytesArrayCount = 0;
+    private readonly array $bytesArray;
+    private readonly int $bytesArrayCount;
 
+    private readonly int $version;
+    private readonly bool $sharedKeysOption;
+    private readonly bool $sharedValuesOption;
+    private readonly bool $rawBinaryOption;
+
+    private bool $isFullyDecoded = false;
     private int $index = 1;
 
     /** @var string[] */
@@ -21,11 +25,6 @@ class SmileDecoderContext
 
     /** @var string[] */
     private array $sharedValues = [];
-
-    private int $version;
-    private bool $sharedKeysOption;
-    private bool $sharedValuesOption;
-    private bool $rawBinaryOption;
 
     public function __construct(array $bytesArray)
     {

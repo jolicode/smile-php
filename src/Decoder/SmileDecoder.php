@@ -18,11 +18,15 @@ class SmileDecoder
         $this->context = new SmileDecoderContext(unpack('C*', $smileData));
         $this->decodeHead();
 
-        return match ($this->getNextByte()) {
-            Bytes::LITERAL_ARRAY_START => $this->decodeArray(),
-            Bytes::LITERAL_OBJECT_START => $this->decodeObject(),
-            default => throw new UnexpectedValueException('The smile file seems invalid since it doesn\'t start with an array or an object.'),
-        };
+        try {
+            return match ($this->getNextByte()) {
+                Bytes::LITERAL_ARRAY_START => $this->decodeArray(),
+                Bytes::LITERAL_OBJECT_START => $this->decodeObject(),
+                default => throw new UnexpectedValueException('The smile file seems invalid since it doesn\'t start with an array or an object.'),
+            };
+        } finally {
+            unset($this->context);
+        }
     }
 
     private function decodeHead(): void
@@ -183,18 +187,19 @@ class SmileDecoder
         return $result;
     }
 
-    private function decodeBigInt(): int
+    private function decodeBigInt(): float
     {
         $int = $this->decodeInt();
 
-        $bytesAmount = round((($int * 8) / 7));
+        $bytesAmount = (int) ceil(((float) $int * 8) / 7);
 
         $binaryString = '';
 
-        foreach (range(1, $bytesAmount) as $index) {
-            $binaryString .= sprintf('%07b', $this->context->getSpecificByte($this->context->getIndex() + $index));
+        for ($i = 0; $i < $bytesAmount; ++$i) {
+            $byte = $this->context->getSpecificByte($this->context->getIndex() + $i);
+            $binaryString .= sprintf('%07b', $byte);
 
-            if ($index === $bytesAmount - 1) {
+            if ($i === $bytesAmount - 1) {
                 $trailing = \strlen($binaryString) % 8;
                 $binaryString = substr($binaryString, 0, \strlen($binaryString) - $trailing);
             }
@@ -267,7 +272,7 @@ class SmileDecoder
         };
     }
 
-    private function writeInteger(int $byte): int
+    private function writeInteger(int $byte): int|float
     {
         return match ($byte) {
             Bytes::INT_32 => $this->zigZagDecode($this->decodeInt()),
@@ -358,11 +363,9 @@ class SmileDecoder
         return $value;
     }
 
-    private function endBodyDecoding()
+    private function endBodyDecoding(): void
     {
         $this->context->setFullyDecoded();
-
-        return null;
     }
 
     /** @throws UnexpectedValueException */
