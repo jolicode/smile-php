@@ -12,10 +12,12 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\Style\SymfonyStyle;
+use UnexpectedValueException;
 
 #[AsCommand(
     name: 'smile-decode',
-    description: 'Decodes a smile binary file. You may directly decode a string as well.'
+    description: 'Decodes a smile binary file as json. You may directly decode a smile string as well.'
 )]
 class DecodeCommand extends Command
 {
@@ -26,6 +28,7 @@ class DecodeCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output)
     {
+        $style = new SymfonyStyle($input, $output);
         $decoder = new SmileDecoder();
 
         $data = $input->getArgument('smile-data');
@@ -34,10 +37,18 @@ class DecodeCommand extends Command
             $data = file_get_contents($data);
         }
 
-        // TODO : add a progress bar
+        try {
+            file_put_contents(
+                __DIR__ . '/../../files/decode/output.json',
+                json_encode($decoder->decode($data), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)
+            );
+        } catch (UnexpectedValueException $exception) {
+            $style->error('An error occured while decoding the smile data. Message : ' . $exception->getMessage());
 
-        // TODO : use a proper logger instead
-        $output->writeln($decoder->decode($data));
+            return Command::FAILURE;
+        }
+
+        $style->success('Smile file successfuly decoded as json. Result written at files/decode/output.json');
 
         return Command::SUCCESS;
     }
