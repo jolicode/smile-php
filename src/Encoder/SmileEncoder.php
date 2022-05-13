@@ -105,45 +105,33 @@ class SmileEncoder
 
     private function encodeInt32(int $int)
     {
-        $encodedInt = $this->zigZagEncode($int, 32);
+        $shiftingValue = $this->zigZagEncode($int, 32);
 
-        if ($encodedInt >= 0) {
-            if ($encodedInt < 32) {
-                return Bytes::THRESHOLD_SMALL_INT + $encodedInt;
+        if ($shiftingValue >= 0) {
+            if ($shiftingValue < 32) {
+                return Bytes::THRESHOLD_SMALL_INT + $shiftingValue;
             }
 
-            if ($encodedInt < 64) {
-                return [Bytes::INT_32, 128 + $encodedInt];
+            if ($shiftingValue < 64) {
+                return [Bytes::INT_32, 128 + $shiftingValue];
             }
         }
 
-        $byte1 = 128 + ($encodedInt & 63);
-        $encodedInt >>= 6;
+        $byte1 = 128 + ($shiftingValue & 63);
+        $shiftingValue >>= 6;
 
-        if ($encodedInt < 128) {
-            return [Bytes::INT_32, $encodedInt, $byte1];
+        if ($shiftingValue < 128) {
+            return [Bytes::INT_32, $shiftingValue, $byte1];
         }
 
-        $byte2 = $encodedInt & 127;
-        $encodedInt >>= 7;
+        $bytesToReturn = [$byte1];
 
-        if ($encodedInt < 128) {
-            return [Bytes::INT_32, $encodedInt, $byte2, $byte1];
+        while ($shiftingValue > 127) {
+            $bytesToReturn[] = $shiftingValue & 127;
+            $shiftingValue >>= 7;
         }
 
-        $byte3 = $encodedInt & 127;
-        $encodedInt >>= 7;
-
-        if ($encodedInt < 128) {
-            return [Bytes::INT_32, $encodedInt, $byte3, $byte2, $byte1];
-        }
-
-        $byte4 = $encodedInt & 127;
-        $encodedInt >>= 7;
-
-        if ($encodedInt < 128) {
-            return [Bytes::INT_32, $encodedInt, $byte4, $byte3, $byte2, $byte1];
-        }
+        return [Bytes::INT_32, $shiftingValue, ...array_reverse($bytesToReturn)];
     }
 
     private function encodeInt64(int $int)
