@@ -77,6 +77,7 @@ class SmileEncoder
     private function encodeValue(mixed $value): EncodingResult
     {
         return match (gettype($value)) {
+            'integer' => new EncodingResult($this->encodeInt($value)),
             'array' => new EncodingResult($this->encodeStructure($value), true),
         };
     }
@@ -86,5 +87,116 @@ class SmileEncoder
         return match (true) {
 
         };
+    }
+
+    private function zigZagEncode(int $int, int $bits)
+    {
+        return ($int >> ($bits - 1)) ^ ($int << 1);
+    }
+
+    private function encodeInt(int $int)
+    {
+        return match (true) {
+            (self::INT32_MIN_VALUE <= $int) && (self::INT32_MAX_VALUE >= $int) => $this->encodeInt32($int),
+            (PHP_INT_MIN <= $int) && (PHP_INT_MAX >= $int) => $this->encodeInt64($int),
+            default => $this->encodeBigInt($int)
+        };
+    }
+
+    private function encodeInt32(int $int)
+    {
+        $encodedInt = $this->zigZagEncode($int, 32);
+
+        if ($encodedInt >= 0) {
+            if ($encodedInt < 32) {
+                return Bytes::THRESHOLD_SMALL_INT + $encodedInt;
+            }
+
+            if ($encodedInt < 64) {
+                return [Bytes::INT_32, 128 + $encodedInt];
+            }
+        }
+
+        $byte1 = 128 + ($encodedInt & 63);
+        $encodedInt >>= 6;
+
+        if ($encodedInt < 128) {
+            return [Bytes::INT_32, $encodedInt, $byte1];
+        }
+
+        $byte2 = $encodedInt & 127;
+        $encodedInt >>= 7;
+
+        if ($encodedInt < 128) {
+            return [Bytes::INT_32, $encodedInt, $byte2, $byte1];
+        }
+
+        $byte3 = $encodedInt & 127;
+        $encodedInt >>= 7;
+
+        if ($encodedInt < 128) {
+            return [Bytes::INT_32, $encodedInt, $byte3, $byte2, $byte1];
+        }
+
+        $byte4 = $encodedInt & 127;
+        $encodedInt >>= 7;
+
+        if ($encodedInt < 128) {
+            return [Bytes::INT_32, $encodedInt, $byte4, $byte3, $byte2, $byte1];
+        }
+    }
+
+    private function encodeInt64(int $int)
+    {
+        $zigZag = $this->zigZagEncode($int, 64);
+
+        $byte1 = 0x80 + ($zigZag & 63);
+        $byte2 = ($zigZag >> 6) & 127;
+        $byte3 = ($zigZag >> 13) & 127;
+        $byte4 = ($zigZag >> 20) & 127;
+
+        $shift = $this->bitShiftRight($zigZag, 27);
+        $byte5 = $shift & 127;
+
+        $shiftingValue = $shift >> 7;
+
+        if (!$shiftingValue) {
+            return [Bytes::INT_64, $byte5, $byte4, $byte3, $byte2, $byte1];
+        }
+
+        $bytesToReturn = [$byte1, $byte2, $byte3, $byte4, $byte5];
+
+        while ($shiftingValue <= 127) {
+            $bytesToReturn[] = $shiftingValue & 127;
+            $shiftingValue >>= 7;
+        }
+
+        return [Bytes::INT_64, $shiftingValue, ...array_reverse($bytesToReturn)];
+    }
+
+    private function encodeBigInt(int $int)
+    {
+        dd($int);
+    }
+
+    // PHP implementation of Java's ">>>" bitwise operator.
+    // Credits to https://github.com/natural/java2python/blob/master/java2python/mod/include/bsr.py
+    private function bitShiftRight($value, $bits)
+    {
+        if ($bits < 0 || $bits > 31) {
+            throw new UnexpectedValueException('Trying to right shift by a wrong amount of bits. Bits count may only be between 0 and 31, %d provided', $bits);
+        }
+
+        if ($bits === 0) {
+            return $value;
+        }
+
+        if ($bits === 31) {
+            return ($value & self::INT32_MIN_VALUE) ? 1 : 0;
+        }
+
+        $result = floor(($value & (self::INT32_MAX_VALUE - 1)) / 2 ** $bits);
+
+        return ($value & self::INT32_MIN_VALUE) ? ($result |= floor(round(self::INT32_MAX_VALUE / 2) / 2 ** ($bits - 1))) : $result;
     }
 }
